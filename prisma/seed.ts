@@ -1,11 +1,9 @@
 import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
-import { createClient } from "@libsql/client";
 import bcrypt from "bcryptjs";
 
-const libsql = createClient({ url: process.env.DATABASE_URL ?? "file:dev.db" });
-const adapter = new PrismaLibSql(libsql);
+const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL ?? "file:dev.db" });
 const prisma = new PrismaClient({ adapter } as never);
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -177,7 +175,7 @@ async function main() {
 
   // ── Rooms ─────────────────────────────────────────────────────────────────
   // Bâtiment A – salles de cours
-  const roomsAmpere: typeof buildingA[] = [];
+  const roomsAmpere: { id: string; name: string; capacity: number; [k: string]: unknown }[] = [];
   const classroomDefs = [
     { name: "Amphi A001", capacity: 120, floor: 0, zone: zoneA1, area: 200 },
     { name: "Salle A002", capacity: 40,  floor: 0, zone: zoneA1, area: 60 },
@@ -206,7 +204,7 @@ async function main() {
   }
 
   // Bâtiment B – labos + bureaux
-  const roomsCurie: typeof buildingA[] = [];
+  const roomsCurie: { id: string; name: string; capacity: number; [k: string]: unknown }[] = [];
   const curieDefs = [
     { name: "Labo Info B001", capacity: 24, floor: 0, zone: zoneB1, type: "LAB", area: 80 },
     { name: "Labo Physique B002", capacity: 20, floor: 0, zone: zoneB1, type: "LAB", area: 70 },
@@ -231,7 +229,7 @@ async function main() {
   }
 
   // Bâtiment C – dortoirs (30 chambres)
-  const dormRooms: typeof buildingA[] = [];
+  const dormRooms: { id: string; name: string; capacity: number; [k: string]: unknown }[] = [];
   for (let i = 1; i <= 30; i++) {
     const floor = Math.floor((i - 1) / 6) + 1;
     const zone = i <= 15 ? zoneC1 : zoneC2;
@@ -651,4 +649,4 @@ async function main() {
 
 main()
   .catch((e) => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => { await prisma.$disconnect(); process.exit(0); });
