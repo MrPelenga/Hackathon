@@ -1,0 +1,530 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+  MAINTENANCE
+}
+
+enum RoomType {
+  CLASSROOM
+  DORM
+  OFFICE
+  CAFETERIA
+  LAB
+  COMMON
+  OTHER
+}
+
+enum EquipmentType {
+  BLIND
+  LIGHT
+  DOOR
+  PRESENCE_SENSOR
+  AIR_QUALITY_SENSOR
+  COMPUTER
+  OTHER
+}
+
+enum EquipmentStatus {
+  ON
+  OFF
+  FAULT
+  MAINTENANCE
+}
+
+enum SpotType {
+  STANDARD
+  DISABLED
+  ELECTRIC
+}
+
+enum SpotStatus {
+  FREE
+  OCCUPIED
+  RESERVED
+  MAINTENANCE
+}
+
+enum LightStatus {
+  ON
+  OFF
+  FAULT
+}
+
+enum LightMode {
+  AUTO
+  MANUAL
+}
+
+enum HvacMode {
+  AUTO
+  MANUAL
+  ECO
+  OFF
+}
+
+enum HvacStatus {
+  HEATING
+  COOLING
+  IDLE
+  OFF
+  FAULT
+}
+
+enum IncidentStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum IncidentCategory {
+  LIGHTING
+  HVAC
+  BLIND
+  EQUIPMENT
+  ACCESS
+  PARKING
+  OTHER
+}
+
+enum IncidentPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AccessAction {
+  ENTRY
+  EXIT
+  DENIED
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  ALERT
+  CRITICAL
+}
+
+enum SensorType {
+  TEMPERATURE
+  PRESENCE
+  ENERGY
+  AIR_QUALITY
+  HUMIDITY
+  LUMINOSITY
+}
+
+enum OccupancySource {
+  SENSOR
+  BADGE
+  COURSE_SCHEDULE
+  MANUAL
+}
+
+// ─── USERS & AUTH ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  role         UserRole
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  student             Student?
+  accessLogs          AccessLog[]
+  notifications       Notification[]
+  incidentsReported   Incident[]           @relation("ReportedBy")
+  incidentsAssigned   Incident[]           @relation("AssignedTo")
+  coursesTaught       Course[]
+  roomReservations    RoomReservation[]
+  parkingReservations ParkingReservation[]
+
+  @@map("users")
+}
+
+model Student {
+  id            String @id @default(cuid())
+  userId        String @unique @map("user_id")
+  studentNumber String @unique @map("student_number")
+  year          Int    @default(1)
+  program       String
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dormAssignment  DormAssignment?
+  attendances     Attendance[]
+  campusPresences CampusPresence[]
+
+  @@map("students")
+}
+
+// ─── CAMPUS INFRASTRUCTURE ───────────────────────────────────────────────────
+
+model Building {
+  id         String  @id @default(cuid())
+  name       String
+  shortName  String  @map("short_name")
+  address    String
+  latitude   Float?
+  longitude  Float?
+  floorCount Int     @default(1) @map("floor_count")
+  isOpen     Boolean @default(true) @map("is_open")
+
+  zones           Zone[]
+  rooms           Room[]
+  streetLights    StreetLight[]
+  campusPresences CampusPresence[]
+  sensorReadings  SensorReading[]
+
+  @@map("buildings")
+}
+
+model Zone {
+  id         String @id @default(cuid())
+  buildingId String @map("building_id")
+  name       String
+  floor      Int    @default(0)
+
+  building      Building          @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  rooms         Room[]
+  hvacUnits     HvacUnit[]
+  occupancyRecs OccupancyRecord[]
+
+  @@map("zones")
+}
+
+model Room {
+  id         String   @id @default(cuid())
+  buildingId String   @map("building_id")
+  zoneId     String?  @map("zone_id")
+  name       String
+  type       RoomType
+  capacity   Int
+  floor      Int      @default(0)
+  areaSqm    Float?   @map("area_sqm")
+  isActive   Boolean  @default(true) @map("is_active")
+
+  building        Building          @relation(fields: [buildingId], references: [id])
+  zone            Zone?             @relation(fields: [zoneId], references: [id])
+  equipment       Equipment[]
+  hvacUnits       HvacUnit[]
+  courseSessions  CourseSession[]
+  occupancyRecs   OccupancyRecord[]
+  dormAssignments DormAssignment[]
+  sensorReadings  SensorReading[]
+  incidents       Incident[]
+  reservations    RoomReservation[]
+
+  @@map("rooms")
+}
+
+model Equipment {
+  id          String          @id @default(cuid())
+  roomId      String          @map("room_id")
+  name        String
+  type        EquipmentType
+  status      EquipmentStatus @default(OFF)
+  isOnline    Boolean         @default(true) @map("is_online")
+  lastUpdated DateTime        @default(now()) @map("last_updated")
+
+  room      Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  incidents Incident[]
+
+  @@map("equipment")
+}
+
+// ─── HVAC / CLIMATE ──────────────────────────────────────────────────────────
+
+model HvacUnit {
+  id                 String     @id @default(cuid())
+  zoneId             String?    @map("zone_id")
+  roomId             String?    @map("room_id")
+  name               String
+  mode               HvacMode   @default(AUTO)
+  status             HvacStatus @default(IDLE)
+  setTemperature     Float      @default(21.0) @map("set_temperature")
+  currentTemperature Float      @default(20.0) @map("current_temperature")
+  isOnline           Boolean    @default(true) @map("is_online")
+  powerWatts         Float?     @map("power_watts")
+  lastUpdated        DateTime   @default(now()) @map("last_updated")
+
+  zone           Zone?           @relation(fields: [zoneId], references: [id])
+  room           Room?           @relation(fields: [roomId], references: [id])
+  sensorReadings SensorReading[]
+
+  @@map("hvac_units")
+}
+
+// ─── PARKING ─────────────────────────────────────────────────────────────────
+
+model ParkingLot {
+  id         String  @id @default(cuid())
+  name       String
+  shortName  String  @map("short_name")
+  latitude   Float?
+  longitude  Float?
+  totalSpots Int     @map("total_spots")
+  isOpen     Boolean @default(true) @map("is_open")
+
+  spots ParkingSpot[]
+
+  @@map("parking_lots")
+}
+
+model ParkingSpot {
+  id          String     @id @default(cuid())
+  lotId       String     @map("lot_id")
+  number      String
+  type        SpotType   @default(STANDARD)
+  status      SpotStatus @default(FREE)
+  lastUpdated DateTime   @default(now()) @map("last_updated")
+
+  lot          ParkingLot           @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  reservations ParkingReservation[]
+
+  @@unique([lotId, number])
+  @@map("parking_spots")
+}
+
+model ParkingReservation {
+  id        String   @id @default(cuid())
+  spotId    String   @map("spot_id")
+  userId    String   @map("user_id")
+  startTime DateTime @map("start_time")
+  endTime   DateTime @map("end_time")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  spot ParkingSpot @relation(fields: [spotId], references: [id])
+  user User        @relation(fields: [userId], references: [id])
+
+  @@map("parking_reservations")
+}
+
+// ─── STREET LIGHTING ─────────────────────────────────────────────────────────
+
+model StreetLight {
+  id          String      @id @default(cuid())
+  buildingId  String?     @map("building_id")
+  identifier  String      @unique
+  latitude    Float?
+  longitude   Float?
+  status      LightStatus @default(ON)
+  mode        LightMode   @default(AUTO)
+  powerWatts  Float       @default(100) @map("power_watts")
+  isOnline    Boolean     @default(true) @map("is_online")
+  lastUpdated DateTime    @default(now()) @map("last_updated")
+
+  building  Building?  @relation(fields: [buildingId], references: [id])
+  incidents Incident[]
+
+  @@map("street_lights")
+}
+
+// ─── COURSES & ATTENDANCE ─────────────────────────────────────────────────────
+
+model Course {
+  id          String @id @default(cuid())
+  code        String @unique
+  name        String
+  teacherId   String @map("teacher_id")
+  credits     Int    @default(3)
+  description String @default("")
+
+  teacher  User            @relation(fields: [teacherId], references: [id])
+  sessions CourseSession[]
+
+  @@map("courses")
+}
+
+model CourseSession {
+  id        String   @id @default(cuid())
+  courseId  String   @map("course_id")
+  roomId    String   @map("room_id")
+  date      DateTime
+  startTime String   @map("start_time")
+  endTime   String   @map("end_time")
+
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  room        Room         @relation(fields: [roomId], references: [id])
+  attendances Attendance[]
+
+  @@map("course_sessions")
+}
+
+model Attendance {
+  id          String    @id @default(cuid())
+  sessionId   String    @map("session_id")
+  studentId   String    @map("student_id")
+  isPresent   Boolean   @default(false) @map("is_present")
+  checkedInAt DateTime? @map("checked_in_at")
+
+  session CourseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@map("attendances")
+}
+
+// ─── PRESENCE & DORMS ────────────────────────────────────────────────────────
+
+model CampusPresence {
+  id           String    @id @default(cuid())
+  studentId    String    @map("student_id")
+  buildingId   String?   @map("building_id")
+  badgeId      String?   @map("badge_id")
+  checkedInAt  DateTime  @map("checked_in_at")
+  checkedOutAt DateTime? @map("checked_out_at")
+
+  student  Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  building Building? @relation(fields: [buildingId], references: [id])
+
+  @@map("campus_presences")
+}
+
+model DormAssignment {
+  id        String    @id @default(cuid())
+  roomId    String    @map("room_id")
+  studentId String    @unique @map("student_id")
+  startDate DateTime  @map("start_date")
+  endDate   DateTime? @map("end_date")
+  isActive  Boolean   @default(true) @map("is_active")
+
+  room    Room    @relation(fields: [roomId], references: [id])
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("dorm_assignments")
+}
+
+// ─── SENSOR DATA & OCCUPANCY ──────────────────────────────────────────────────
+
+model OccupancyRecord {
+  id            String          @id @default(cuid())
+  roomId        String?         @map("room_id")
+  zoneId        String?         @map("zone_id")
+  timestamp     DateTime        @default(now())
+  occupantCount Int             @map("occupant_count")
+  capacity      Int
+  rate          Float
+  source        OccupancySource @default(SENSOR)
+
+  room Room? @relation(fields: [roomId], references: [id])
+  zone Zone? @relation(fields: [zoneId], references: [id])
+
+  @@map("occupancy_records")
+}
+
+model SensorReading {
+  id         String     @id @default(cuid())
+  roomId     String?    @map("room_id")
+  hvacUnitId String?    @map("hvac_unit_id")
+  buildingId String?    @map("building_id")
+  type       SensorType
+  value      Float
+  unit       String
+  timestamp  DateTime   @default(now())
+
+  room     Room?     @relation(fields: [roomId], references: [id])
+  hvacUnit HvacUnit? @relation(fields: [hvacUnitId], references: [id])
+  building Building? @relation(fields: [buildingId], references: [id])
+
+  @@map("sensor_readings")
+}
+
+// ─── INCIDENTS & MAINTENANCE ──────────────────────────────────────────────────
+
+model Incident {
+  id             String           @id @default(cuid())
+  title          String
+  description    String
+  category       IncidentCategory
+  status         IncidentStatus   @default(OPEN)
+  priority       IncidentPriority @default(MEDIUM)
+  roomId         String?          @map("room_id")
+  equipmentId    String?          @map("equipment_id")
+  streetLightId  String?          @map("street_light_id")
+  reportedById   String           @map("reported_by_id")
+  assignedToId   String?          @map("assigned_to_id")
+  resolutionNote String?          @map("resolution_note")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  resolvedAt     DateTime?        @map("resolved_at")
+
+  room        Room?        @relation(fields: [roomId], references: [id])
+  equipment   Equipment?   @relation(fields: [equipmentId], references: [id])
+  streetLight StreetLight? @relation(fields: [streetLightId], references: [id])
+  reportedBy  User         @relation("ReportedBy", fields: [reportedById], references: [id])
+  assignedTo  User?        @relation("AssignedTo", fields: [assignedToId], references: [id])
+
+  @@map("incidents")
+}
+
+// ─── SECURITY & ACCESS ────────────────────────────────────────────────────────
+
+// Append-only: never UPDATE or DELETE rows — integrity guaranteed by application layer
+model AccessLog {
+  id        String       @id @default(cuid())
+  userId    String       @map("user_id")
+  action    AccessAction
+  location  String
+  badgeId   String?      @map("badge_id")
+  timestamp DateTime     @default(now())
+  isSuccess Boolean      @default(true) @map("is_success")
+  ipAddress String?      @map("ip_address")
+  notes     String?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("access_logs")
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  body      String
+  isRead    Boolean          @default(false) @map("is_read")
+  metaJson  String?          @map("meta_json")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// ─── ROOM RESERVATIONS ────────────────────────────────────────────────────────
+
+model RoomReservation {
+  id           String   @id @default(cuid())
+  roomId       String   @map("room_id")
+  reservedById String   @map("reserved_by_id")
+  title        String
+  startTime    DateTime @map("start_time")
+  endTime      DateTime @map("end_time")
+  isApproved   Boolean  @default(false) @map("is_approved")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  room       Room @relation(fields: [roomId], references: [id])
+  reservedBy User @relation(fields: [reservedById], references: [id])
+
+  @@map("room_reservations")
+}
