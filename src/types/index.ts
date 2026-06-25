@@ -1,53 +1,34 @@
 import type {
-  User,
-  Student,
   Building,
   Zone,
   Room,
   Equipment,
   HvacUnit,
-  ParkingLot,
-  ParkingSpot,
   StreetLight,
-  Course,
-  CourseSession,
   Incident,
-  Notification,
-  UserRole,
-  NotificationType,
+  RfidReader,
+  AccessEvent,
+  SensorReading,
 } from "@/generated/prisma/client";
 
 export type {
-  User,
-  Student,
   Building,
   Zone,
   Room,
   Equipment,
   HvacUnit,
-  ParkingLot,
-  ParkingSpot,
   StreetLight,
-  Course,
-  CourseSession,
   Incident,
-  Notification,
-  UserRole,
-  NotificationType,
+  RfidReader,
+  AccessEvent,
+  SensorReading,
 };
 
 // ─── Extended / computed types ────────────────────────────────────────────────
 
-export type ParkingLotWithStats = ParkingLot & {
-  spots: ParkingSpot[];
-  occupancyRate: number;
-  freeCount: number;
-};
-
 export type BuildingWithStats = Building & {
   rooms: Room[];
   zones: Zone[];
-  occupancyRate: number;
 };
 
 export type RoomWithEquipment = Room & {
@@ -56,25 +37,20 @@ export type RoomWithEquipment = Room & {
 };
 
 export type DashboardStats = {
-  totalStudents: number;
-  studentsOnCampus: number;
-  parkingOccupancy: number;
+  totalDevices: number;
+  onlineDevices: number;
   openIncidents: number;
   energyToday: number;
-  activeAlerts: number;
+  accessGranted: number;
+  accessDenied: number;
 };
-
-// ─── Navigation types ──────────────────────────────────────────────────────────
 
 export type NavItem = {
   label: string;
   href: string;
   icon: string;
-  roles: UserRole[];
   badge?: string | number;
 };
-
-// ─── API response wrapper ─────────────────────────────────────────────────────
 
 export type ApiResponse<T> =
   | { success: true; data: T }
