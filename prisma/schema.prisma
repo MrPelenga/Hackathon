@@ -528,3 +528,45 @@ model RoomReservation {
 
   @@map("room_reservations")
 }
+
+// ─── RFID ACCESS CONTROL & BLOCKCHAIN ────────────────────────────────────────
+
+model RfidReader {
+  id            String   @id @default(cuid())
+  name          String
+  location      String
+  building      String
+  zone          String
+  floor         Int      @default(0)
+  securityLevel String   @default("STANDARD") @map("security_level")
+  isOnline      Boolean  @default(true) @map("is_online")
+  lastSeen      DateTime @default(now()) @map("last_seen")
+  allowedRoles  String   @map("allowed_roles")
+
+  events AccessEvent[]
+
+  @@map("rfid_readers")
+}
+
+// Blockchain-backed access log — each row is an immutable block
+// blockData = exact JSON used to compute blockHash (SHA-256)
+model AccessEvent {
+  id          String   @id @default(cuid())
+  blockIndex  Int      @unique @map("block_index")
+  badgeNumber String   @map("badge_number")
+  holderName  String   @map("holder_name")
+  holderRole  String   @map("holder_role")
+  readerId    String   @map("reader_id")
+  readerName  String   @map("reader_name")
+  location    String
+  result      String
+  reason      String?
+  timestamp   DateTime @default(now())
+  blockHash   String   @map("block_hash")
+  prevHash    String   @map("prev_hash")
+  blockData   String   @map("block_data")
+
+  reader RfidReader @relation(fields: [readerId], references: [id])
+
+  @@map("access_events")
+}
