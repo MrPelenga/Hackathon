@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Cpu, Lightbulb, Thermometer, Zap, ShieldCheck, Settings,
+  LayoutDashboard, Cpu, Lightbulb, Thermometer, Zap, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "@/lib/nav";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  LayoutDashboard, Cpu, Lightbulb, Thermometer, Zap, ShieldCheck, Settings,
+  LayoutDashboard, Cpu, Lightbulb, Thermometer, Zap, ShieldCheck,
 };
 
 interface SidebarProps {
