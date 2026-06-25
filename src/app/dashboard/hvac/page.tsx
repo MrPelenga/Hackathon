@@ -1,121 +1,176 @@
-export const dynamic = "force-dynamic";
 import prisma from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Thermometer, AlertTriangle } from "lucide-react";
-import { StatCard } from "@/components/dashboard/StatCard";
+import { Thermometer, Zap, Wifi, WifiOff, Wind } from "lucide-react";
+import { HvacControls } from "./_components/HvacControls";
 
-async function HvacOverview() {
+const STATUS_LABELS: Record<string, string> = {
+  HEATING: "Chauffe", COOLING: "Refroidit", IDLE: "Veille", OFF: "Éteint", FAULT: "Panne",
+};
+const MODE_LABELS: Record<string, string> = {
+  AUTO: "Auto", MANUAL: "Manuel", ECO: "Éco", OFF: "Éteint",
+};
+
+export default async function HvacPage() {
   const units = await prisma.hvacUnit.findMany({
     include: {
-      zone: { include: { building: { select: { name: true, shortName: true } } } },
-      room: { select: { name: true } },
+      zone: { include: { building: true } },
+      room: { include: { building: true } },
     },
-    orderBy: { lastUpdated: "desc" },
+    orderBy: { name: "asc" },
   });
 
-  const faults = units.filter((u) => u.status === "FAULT").length;
-  const avgTemp = units.length > 0 ? units.reduce((s, u) => s + u.currentTemperature, 0) / units.length : 0;
-  const emptyButOn = units.filter((u) => u.status !== "OFF" && u.status !== "IDLE" && u.status !== "FAULT");
-
-  const modeColors: Record<string, string> = {
-    AUTO: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
-    ECO: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
-    MANUAL: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
-    OFF: "bg-slate-100 text-slate-600 dark:bg-slate-800",
-  };
-  const statusColors: Record<string, string> = {
-    HEATING: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
-    COOLING: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
-    IDLE: "bg-slate-100 text-slate-600 dark:bg-slate-800",
-    OFF: "bg-slate-100 text-slate-500 dark:bg-slate-800",
-    FAULT: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
-  };
-  const statusLabels: Record<string, string> = {
-    HEATING: "Chauffe", COOLING: "Refroidit", IDLE: "Veille", OFF: "Arrêt", FAULT: "Panne",
-  };
+  const total = units.length;
+  const activeUnits = units.filter(u => u.status === "HEATING" || u.status === "COOLING").length;
+  const idleUnits = units.filter(u => u.status === "IDLE").length;
+  const faultUnits = units.filter(u => u.status === "FAULT").length;
+  const ecoUnits = units.filter(u => u.mode === "ECO").length;
+  const totalW = units.filter(u => u.status !== "OFF" && u.status !== "FAULT")
+    .reduce((s, u) => s + (u.powerWatts ?? 0), 0);
+  const avgTemp = units.length > 0
+    ? units.reduce((s, u) => s + u.currentTemperature, 0) / units.length
+    : 21;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Climatisation & Température</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Pilotage des unités HVAC par zone et par salle</p>
+        <h1 className="text-2xl font-bold tracking-tight">Climatisation</h1>
+        <p className="text-sm text-muted-foreground">Gestion des unités HVAC du campus</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard title="Unités totales" value={units.length} icon={Thermometer} />
-        <StatCard title="Temp. moy. mesurée" value={`${Math.round(avgTemp * 10) / 10}°C`} icon={Thermometer} color="blue" />
-        <StatCard title="En panne" value={faults} icon={AlertTriangle} color={faults > 0 ? "red" : "green"} />
-        <StatCard title="Alertes salle vide" value={emptyButOn.length} icon={AlertTriangle} color={emptyButOn.length > 0 ? "yellow" : "green"} />
-      </div>
-
-      {emptyButOn.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 p-4">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                {emptyButOn.length} zone(s) potentiellement climatisée(s) à vide
-              </p>
-              <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
-                Vérifiez les zones actives sans présence détectée pour optimiser la consommation.
-              </p>
+      {/* Summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs text-muted-foreground font-medium">Total</p>
+            <p className="text-2xl font-bold mt-0.5">{total}</p>
+            <p className="text-xs text-muted-foreground">unités HVAC</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs text-muted-foreground font-medium">Actives</p>
+            <p className="text-2xl font-bold mt-0.5 text-blue-600">{activeUnits}</p>
+            <p className="text-xs text-muted-foreground">en fonctionnement</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs text-muted-foreground font-medium">Veille</p>
+            <p className="text-2xl font-bold mt-0.5 text-muted-foreground">{idleUnits}</p>
+            <p className="text-xs text-muted-foreground">en attente</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs text-muted-foreground font-medium">Pannes</p>
+            <p className="text-2xl font-bold mt-0.5 text-red-600">{faultUnits}</p>
+            <p className="text-xs text-muted-foreground">à réparer</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs text-muted-foreground font-medium">Temp. moy.</p>
+            <p className="text-2xl font-bold mt-0.5">{avgTemp.toFixed(1)}°C</p>
+            <p className="text-xs text-muted-foreground">campus</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-1 mb-0.5">
+              <Zap className="h-3 w-3 text-yellow-500" />
+              <p className="text-xs text-muted-foreground font-medium">Puissance</p>
             </div>
-          </div>
-        </div>
-      )}
+            <p className="text-2xl font-bold mt-0.5">{(totalW / 1000).toFixed(1)}<span className="text-base font-normal"> kW</span></p>
+            <p className="text-xs text-muted-foreground">instantanée</p>
+          </CardContent>
+        </Card>
+      </div>
 
+      {/* Units table */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Unités HVAC</CardTitle>
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Wind className="h-4 w-4 text-blue-500" />
+            Unités HVAC ({total}) — {ecoUnits} en mode Éco
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {units.map((unit) => {
-              const drift = Math.abs(unit.currentTemperature - unit.setTemperature);
-              return (
-                <div key={unit.id} className="flex items-center gap-3 rounded-md border px-3 py-2.5">
-                  <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                    unit.status === "FAULT" ? "bg-red-500 animate-pulse" :
-                    unit.status === "HEATING" ? "bg-orange-400" :
-                    unit.status === "COOLING" ? "bg-blue-400" : "bg-slate-300"
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{unit.name}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {unit.zone?.building?.name ?? unit.room?.name ?? ""}
-                    </p>
-                  </div>
-                  <div className="text-right text-sm tabular-nums">
-                    <p className="font-semibold">{unit.currentTemperature.toFixed(1)}°C</p>
-                    <p className="text-[11px] text-muted-foreground">consigne {unit.setTemperature}°C</p>
-                  </div>
-                  {drift > 2 && (
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                  )}
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${modeColors[unit.mode]}`}>
-                    {unit.mode}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${statusColors[unit.status]}`}>
-                    {statusLabels[unit.status]}
-                  </span>
-                </div>
-              );
-            })}
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Unité</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Localisation</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">État</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Mode</th>
+                  <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground">Temp. actuelle</th>
+                  <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground">Consigne</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground">Puissance</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Connexion</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Contrôle</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {units.map(unit => {
+                  const location = unit.zone
+                    ? `${unit.zone.building?.name ?? "?"} — ${unit.zone.name}`
+                    : unit.room
+                    ? `${unit.room.building?.name ?? "?"} — ${unit.room.name}`
+                    : "Campus";
+                  const diff = unit.currentTemperature - unit.setTemperature;
+                  return (
+                    <tr key={unit.id} className={`hover:bg-muted/30 transition-colors ${unit.status === "FAULT" ? "bg-red-50/60" : ""}`}>
+                      <td className="px-4 py-2.5 font-medium">{unit.name}</td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-[160px] truncate">{location}</td>
+                      <td className="px-4 py-2.5">
+                        {unit.status === "HEATING" && <Badge className="text-[10px] bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-100">Chauffe</Badge>}
+                        {unit.status === "COOLING" && <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100">Refroidit</Badge>}
+                        {unit.status === "IDLE" && <Badge variant="outline" className="text-[10px]">Veille</Badge>}
+                        {unit.status === "OFF" && <Badge variant="outline" className="text-[10px] text-muted-foreground">Éteint</Badge>}
+                        {unit.status === "FAULT" && <Badge variant="destructive" className="text-[10px]">Panne</Badge>}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge
+                          variant={unit.mode === "ECO" ? "secondary" : "outline"}
+                          className={`text-[10px] ${unit.mode === "AUTO" ? "border-blue-200 text-blue-700" : ""}`}
+                        >
+                          {MODE_LABELS[unit.mode]}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={`font-semibold text-sm tabular-nums ${Math.abs(diff) > 2 ? "text-orange-600" : "text-foreground"}`}>
+                          {unit.currentTemperature.toFixed(1)}°C
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className="text-sm tabular-nums text-muted-foreground">{unit.setTemperature.toFixed(1)}°C</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-xs tabular-nums font-medium">
+                        {unit.powerWatts ? `${(unit.powerWatts / 1000).toFixed(1)} kW` : "—"}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {unit.isOnline
+                          ? <span className="flex items-center gap-1 text-xs text-green-600"><Wifi className="h-3 w-3" />En ligne</span>
+                          : <span className="flex items-center gap-1 text-xs text-muted-foreground"><WifiOff className="h-3 w-3" />Hors ligne</span>
+                        }
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <HvacControls
+                          id={unit.id}
+                          mode={unit.mode}
+                          setTemperature={unit.setTemperature}
+                          disabled={!unit.isOnline || unit.status === "FAULT"}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-dashed">
-        <CardContent className="p-6 text-center text-sm text-muted-foreground">
-          Fonctionnalités à venir : contrôle manuel de la consigne, planning de régulation, historique de température, détection de dérive automatique.
         </CardContent>
       </Card>
     </div>
   );
-}
-
-export default function HvacPage() {
-  return <HvacOverview />;
 }

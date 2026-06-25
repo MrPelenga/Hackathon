@@ -1,712 +1,456 @@
 import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
-import bcrypt from "bcryptjs";
+import { createHash } from "crypto";
 
 const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL ?? "file:dev.db" });
 const prisma = new PrismaClient({ adapter } as never);
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
+function rnd(min: number, max: number) { return Math.random() * (max - min) + min; }
+function rndInt(min: number, max: number) { return Math.floor(rnd(min, max + 1)); }
+function pick<T>(arr: readonly T[]): T { return arr[rndInt(0, arr.length - 1)]; }
+function sha256(data: string): string { return createHash("sha256").update(data).digest("hex"); }
 
-function rnd(min: number, max: number) {
-  return Math.random() * (max - min) + min;
-}
-function rndInt(min: number, max: number) {
-  return Math.floor(rnd(min, max + 1));
-}
-function pick<T>(arr: T[]): T {
-  return arr[rndInt(0, arr.length - 1)];
-}
-function daysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-}
+// ─── ROLE / LEVEL RULES ───────────────────────────────────────────────────────
 
-// ─── MAIN ────────────────────────────────────────────────────────────────────
+const ROLES_FOR_LEVEL: Record<string, string[]> = {
+  CRITICAL: ["ADMINISTRATEUR", "RESPONSABLE_SECURITE", "RESPONSABLE_IOT"],
+  HIGH: ["ADMINISTRATEUR", "RESPONSABLE_SECURITE", "RESPONSABLE_IOT", "RESPONSABLE_ENERGIE", "AGENT_MAINTENANCE", "PERSONNEL_TECHNIQUE"],
+  STANDARD: ["ADMINISTRATEUR", "RESPONSABLE_SECURITE", "RESPONSABLE_IOT", "RESPONSABLE_ENERGIE", "AGENT_MAINTENANCE", "PERSONNEL_TECHNIQUE", "PERSONNEL_ADMINISTRATIF", "ENSEIGNANT"],
+  LOW: ["ADMINISTRATEUR", "RESPONSABLE_SECURITE", "RESPONSABLE_IOT", "RESPONSABLE_ENERGIE", "AGENT_MAINTENANCE", "PERSONNEL_TECHNIQUE", "PERSONNEL_ADMINISTRATIF", "ENSEIGNANT", "AGENT_ENTRETIEN", "ETUDIANT", "PRESTATAIRE", "VISITEUR"],
+};
 
 async function main() {
-  console.log("🌱 Seeding Smart Campus database…");
-
-  const hash = (p: string) => bcrypt.hashSync(p, 10);
-
-  // ── Admin & maintenance users ─────────────────────────────────────────────
-  const admin = await prisma.user.create({
-    data: {
-      email: "admin@campus.fr",
-      passwordHash: hash("Admin1234!"),
-      firstName: "Sophie",
-      lastName: "Martin",
-      role: "ADMIN",
-    },
-  });
-
-  const maintenance1 = await prisma.user.create({
-    data: {
-      email: "tech1@campus.fr",
-      passwordHash: hash("Tech1234!"),
-      firstName: "Luc",
-      lastName: "Dupont",
-      role: "MAINTENANCE",
-    },
-  });
-  const maintenance2 = await prisma.user.create({
-    data: {
-      email: "tech2@campus.fr",
-      passwordHash: hash("Tech1234!"),
-      firstName: "Fatima",
-      lastName: "Benali",
-      role: "MAINTENANCE",
-    },
-  });
-
-  // ── Teachers ──────────────────────────────────────────────────────────────
-  const teacherData = [
-    { email: "prof.dubois@campus.fr", firstName: "Jean", lastName: "Dubois" },
-    { email: "prof.leroy@campus.fr", firstName: "Marie", lastName: "Leroy" },
-    { email: "prof.garcia@campus.fr", firstName: "Carlos", lastName: "Garcia" },
-    { email: "prof.zhang@campus.fr", firstName: "Wei", lastName: "Zhang" },
-    { email: "prof.petit@campus.fr", firstName: "Claire", lastName: "Petit" },
-  ];
-  const teachers = await Promise.all(
-    teacherData.map((t) =>
-      prisma.user.create({
-        data: { ...t, passwordHash: hash("Prof1234!"), role: "TEACHER" },
-      })
-    )
-  );
-
-  // ── Students (50) ─────────────────────────────────────────────────────────
-  const firstNames = [
-    "Alice","Baptiste","Camille","David","Emma","François","Gabrielle","Hugo",
-    "Inès","Jules","Kenza","Léo","Manon","Nathan","Océane","Paul","Quentin",
-    "Rania","Samuel","Théa","Ugo","Valentin","Wendy","Xavier","Yasmine",
-    "Zoé","Adam","Bilal","Chloé","Damien","Elsa","Félix","Gaëlle","Hamid",
-    "Iris","Jordan","Karim","Luna","Maxime","Nadia","Omar","Pénélope",
-    "Rémi","Sara","Thomas","Ursula","Victor","Wafa","Yann","Zohra",
-  ];
-  const lastNames = [
-    "Moreau","Bernard","Thomas","Petit","Robert","Richard","Durand","Lefevre",
-    "Simon","Laurent","Michel","Garcia","David","Bertrand","Roux","Vincent",
-    "Fournier","Morin","Girard","Andre","Lecomte","Blanc","Guerin","Boyer",
-    "Garnier","Chevalier","Francois","Legrand","Gauthier","Rousseau",
-  ];
-  const programs = ["Informatique","Mathématiques","Physique","Génie Civil","Économie","Chimie"];
-
-  const studentUsers: typeof admin[] = [];
-  for (let i = 0; i < 50; i++) {
-    const user = await prisma.user.create({
-      data: {
-        email: `etudiant${i + 1}@campus.fr`,
-        passwordHash: hash("Etudiant123!"),
-        firstName: firstNames[i % firstNames.length],
-        lastName: lastNames[i % lastNames.length],
-        role: "STUDENT",
-      },
-    });
-    studentUsers.push(user);
-  }
-
-  const students = await Promise.all(
-    studentUsers.map((u, i) =>
-      prisma.student.create({
-        data: {
-          userId: u.id,
-          studentNumber: `STU${String(2024000 + i + 1)}`,
-          year: rndInt(1, 3),
-          program: programs[i % programs.length],
-        },
-      })
-    )
-  );
+  console.log("🌱 Smart Campus — Seed démarré…");
 
   // ── Buildings ─────────────────────────────────────────────────────────────
-  const buildingA = await prisma.building.create({
-    data: {
-      name: "Bâtiment Ampère",
-      shortName: "AMP",
-      address: "1 Avenue des Sciences, Campus Nord",
-      latitude: 48.8515,
-      longitude: 2.3452,
-      floorCount: 4,
-    },
-  });
-  const buildingB = await prisma.building.create({
-    data: {
-      name: "Bâtiment Curie",
-      shortName: "CUR",
-      address: "3 Avenue des Sciences, Campus Nord",
-      latitude: 48.8518,
-      longitude: 2.3458,
-      floorCount: 3,
-    },
-  });
-  const buildingC = await prisma.building.create({
-    data: {
-      name: "Résidence Universitaire Pasteur",
-      shortName: "RES",
-      address: "5 Rue du Campus, Campus Sud",
-      latitude: 48.8505,
-      longitude: 2.344,
-      floorCount: 5,
-    },
-  });
-  const buildingD = await prisma.building.create({
-    data: {
-      name: "Centre de Vie Étudiant",
-      shortName: "CVE",
-      address: "2 Allée du Parc, Campus Nord",
-      latitude: 48.852,
-      longitude: 2.3462,
-      floorCount: 2,
-    },
-  });
+  const [ampere, curie, darwin, residence] = await Promise.all([
+    prisma.building.create({ data: { name: "Bâtiment Ampère", shortName: "A", address: "1 Allée des Sciences", floorCount: 3, isOpen: true } }),
+    prisma.building.create({ data: { name: "Bâtiment Curie", shortName: "C", address: "3 Allée des Sciences", floorCount: 3, isOpen: true } }),
+    prisma.building.create({ data: { name: "Bâtiment Darwin", shortName: "D", address: "5 Allée des Sciences", floorCount: 2, isOpen: true } }),
+    prisma.building.create({ data: { name: "Résidence Campus", shortName: "R", address: "7 Rue du Campus", floorCount: 4, isOpen: true } }),
+  ]);
 
-  // ── Zones (regroupements pour HVAC et espace) ─────────────────────────────
-  const zoneA1 = await prisma.zone.create({ data: { buildingId: buildingA.id, name: "Zone Nord RDC", floor: 0 } });
-  const zoneA2 = await prisma.zone.create({ data: { buildingId: buildingA.id, name: "Zone Sud RDC", floor: 0 } });
-  const zoneA3 = await prisma.zone.create({ data: { buildingId: buildingA.id, name: "Zone 1er étage", floor: 1 } });
-  const zoneA4 = await prisma.zone.create({ data: { buildingId: buildingA.id, name: "Zone 2ème étage", floor: 2 } });
-  const zoneB1 = await prisma.zone.create({ data: { buildingId: buildingB.id, name: "Zone Labo", floor: 0 } });
-  const zoneB2 = await prisma.zone.create({ data: { buildingId: buildingB.id, name: "Zone Bureaux", floor: 1 } });
-  const zoneC1 = await prisma.zone.create({ data: { buildingId: buildingC.id, name: "Aile Est", floor: 0 } });
-  const zoneC2 = await prisma.zone.create({ data: { buildingId: buildingC.id, name: "Aile Ouest", floor: 0 } });
-  const zoneD1 = await prisma.zone.create({ data: { buildingId: buildingD.id, name: "Cafétéria", floor: 0 } });
+  // ── Zones ─────────────────────────────────────────────────────────────────
+  const [zA0, zA1, zA2, zC0, zC1, zD0, zD1, zR] = await Promise.all([
+    prisma.zone.create({ data: { buildingId: ampere.id, name: "Ampère RDC", floor: 0 } }),
+    prisma.zone.create({ data: { buildingId: ampere.id, name: "Ampère Étage 1", floor: 1 } }),
+    prisma.zone.create({ data: { buildingId: ampere.id, name: "Ampère Étage 2", floor: 2 } }),
+    prisma.zone.create({ data: { buildingId: curie.id, name: "Curie RDC", floor: 0 } }),
+    prisma.zone.create({ data: { buildingId: curie.id, name: "Curie Étage 1", floor: 1 } }),
+    prisma.zone.create({ data: { buildingId: darwin.id, name: "Darwin RDC", floor: 0 } }),
+    prisma.zone.create({ data: { buildingId: darwin.id, name: "Darwin Étage 1", floor: 1 } }),
+    prisma.zone.create({ data: { buildingId: residence.id, name: "Résidence Hall", floor: 0 } }),
+  ]);
 
   // ── Rooms ─────────────────────────────────────────────────────────────────
-  // Bâtiment A – salles de cours
-  const roomsAmpere: { id: string; name: string; capacity: number; [k: string]: unknown }[] = [];
-  const classroomDefs = [
-    { name: "Amphi A001", capacity: 120, floor: 0, zone: zoneA1, area: 200 },
-    { name: "Salle A002", capacity: 40,  floor: 0, zone: zoneA1, area: 60 },
-    { name: "Salle A003", capacity: 30,  floor: 0, zone: zoneA1, area: 50 },
-    { name: "Salle A004", capacity: 40,  floor: 0, zone: zoneA2, area: 60 },
-    { name: "Salle A005", capacity: 30,  floor: 0, zone: zoneA2, area: 50 },
-    { name: "Salle A101", capacity: 60,  floor: 1, zone: zoneA3, area: 90 },
-    { name: "Salle A102", capacity: 40,  floor: 1, zone: zoneA3, area: 60 },
-    { name: "Salle A103", capacity: 40,  floor: 1, zone: zoneA3, area: 60 },
-    { name: "Salle A201", capacity: 30,  floor: 2, zone: zoneA4, area: 50 },
-    { name: "Salle A202", capacity: 30,  floor: 2, zone: zoneA4, area: 50 },
+  type RoomDef = { buildingId: string; zoneId: string; name: string; type: "CLASSROOM"|"LAB"|"OFFICE"|"CAFETERIA"|"DORM"|"COMMON"|"OTHER"; capacity: number; floor: number };
+  const roomDefs: RoomDef[] = [
+    { buildingId: ampere.id, zoneId: zA0.id, name: "Ampère A101", type: "CLASSROOM", capacity: 30, floor: 0 },
+    { buildingId: ampere.id, zoneId: zA0.id, name: "Ampère A102", type: "CLASSROOM", capacity: 30, floor: 0 },
+    { buildingId: ampere.id, zoneId: zA0.id, name: "Ampère Hall", type: "COMMON", capacity: 100, floor: 0 },
+    { buildingId: ampere.id, zoneId: zA1.id, name: "Lab Info A201", type: "LAB", capacity: 24, floor: 1 },
+    { buildingId: ampere.id, zoneId: zA1.id, name: "Lab Info A202", type: "LAB", capacity: 24, floor: 1 },
+    { buildingId: ampere.id, zoneId: zA1.id, name: "Bureau Profs A", type: "OFFICE", capacity: 8, floor: 1 },
+    { buildingId: ampere.id, zoneId: zA2.id, name: "Salle Serveurs A301", type: "OTHER", capacity: 2, floor: 2 },
+    { buildingId: curie.id, zoneId: zC0.id, name: "Curie C101", type: "CLASSROOM", capacity: 35, floor: 0 },
+    { buildingId: curie.id, zoneId: zC0.id, name: "Curie C102", type: "CLASSROOM", capacity: 35, floor: 0 },
+    { buildingId: curie.id, zoneId: zC0.id, name: "Curie Hall", type: "COMMON", capacity: 80, floor: 0 },
+    { buildingId: curie.id, zoneId: zC1.id, name: "Labo Chimie C201", type: "LAB", capacity: 16, floor: 1 },
+    { buildingId: curie.id, zoneId: zC1.id, name: "Labo Physique C202", type: "LAB", capacity: 16, floor: 1 },
+    { buildingId: curie.id, zoneId: zC1.id, name: "Stockage C203", type: "OTHER", capacity: 2, floor: 1 },
+    { buildingId: darwin.id, zoneId: zD0.id, name: "Bibliothèque D101", type: "COMMON", capacity: 60, floor: 0 },
+    { buildingId: darwin.id, zoneId: zD0.id, name: "Darwin D102", type: "CLASSROOM", capacity: 30, floor: 0 },
+    { buildingId: darwin.id, zoneId: zD0.id, name: "Cafétéria D103", type: "CAFETERIA", capacity: 120, floor: 0 },
+    { buildingId: darwin.id, zoneId: zD1.id, name: "Salle Info D201", type: "LAB", capacity: 20, floor: 1 },
+    { buildingId: darwin.id, zoneId: zD1.id, name: "Salle Info D202", type: "LAB", capacity: 20, floor: 1 },
+    { buildingId: residence.id, zoneId: zR.id, name: "Salle Commune R", type: "COMMON", capacity: 30, floor: 0 },
+    { buildingId: residence.id, zoneId: zR.id, name: "Chambre R101", type: "DORM", capacity: 2, floor: 1 },
   ];
-  for (const def of classroomDefs) {
-    const r = await prisma.room.create({
-      data: {
-        buildingId: buildingA.id,
-        zoneId: def.zone.id,
-        name: def.name,
-        type: "CLASSROOM",
-        capacity: def.capacity,
-        floor: def.floor,
-        areaSqm: def.area,
-      },
-    });
-    roomsAmpere.push(r);
-  }
+  const rooms = await Promise.all(roomDefs.map(r => prisma.room.create({ data: r })));
+  const roomMap: Record<string, typeof rooms[0]> = {};
+  rooms.forEach(r => { roomMap[r.name] = r; });
 
-  // Bâtiment B – labos + bureaux
-  const roomsCurie: { id: string; name: string; capacity: number; [k: string]: unknown }[] = [];
-  const curieDefs = [
-    { name: "Labo Info B001", capacity: 24, floor: 0, zone: zoneB1, type: "LAB", area: 80 },
-    { name: "Labo Physique B002", capacity: 20, floor: 0, zone: zoneB1, type: "LAB", area: 70 },
-    { name: "Labo Chimie B003", capacity: 18, floor: 0, zone: zoneB1, type: "LAB", area: 65 },
-    { name: "Bureau Profs B101", capacity: 8, floor: 1, zone: zoneB2, type: "OFFICE", area: 30 },
-    { name: "Bureau Direction B102", capacity: 4, floor: 1, zone: zoneB2, type: "OFFICE", area: 20 },
-    { name: "Salle de réunion B103", capacity: 12, floor: 1, zone: zoneB2, type: "CLASSROOM", area: 35 },
-  ];
-  for (const def of curieDefs) {
-    const r = await prisma.room.create({
-      data: {
-        buildingId: buildingB.id,
-        zoneId: def.zone.id,
-        name: def.name,
-        type: def.type as "LAB" | "OFFICE" | "CLASSROOM",
-        capacity: def.capacity,
-        floor: def.floor,
-        areaSqm: def.area,
-      },
-    });
-    roomsCurie.push(r);
-  }
-
-  // Bâtiment C – dortoirs (30 chambres)
-  const dormRooms: { id: string; name: string; capacity: number; [k: string]: unknown }[] = [];
-  for (let i = 1; i <= 30; i++) {
-    const floor = Math.floor((i - 1) / 6) + 1;
-    const zone = i <= 15 ? zoneC1 : zoneC2;
-    const r = await prisma.room.create({
-      data: {
-        buildingId: buildingC.id,
-        zoneId: zone.id,
-        name: `Chambre ${String(floor * 100 + (i % 6 || 6)).padStart(3, "0")}`,
-        type: "DORM",
-        capacity: 1,
-        floor,
-        areaSqm: 14,
-      },
-    });
-    dormRooms.push(r);
-  }
-
-  // Bâtiment D – cafétéria + espace commun
-  const cafeteriaRoom = await prisma.room.create({
-    data: {
-      buildingId: buildingD.id,
-      zoneId: zoneD1.id,
-      name: "Cafétéria Principale",
-      type: "CAFETERIA",
-      capacity: 200,
-      floor: 0,
-      areaSqm: 400,
-    },
-  });
-  const commonRoom = await prisma.room.create({
-    data: {
-      buildingId: buildingD.id,
-      zoneId: zoneD1.id,
-      name: "Espace Détente",
-      type: "COMMON",
-      capacity: 50,
-      floor: 0,
-      areaSqm: 100,
-    },
-  });
-
-  // ── Equipment pour les salles de cours ────────────────────────────────────
-  const classroomRooms = [...roomsAmpere, ...roomsCurie.slice(0, 3)];
-  for (const room of classroomRooms) {
-    await prisma.equipment.createMany({
-      data: [
-        { roomId: room.id, name: "Lumière principale", type: "LIGHT", status: "OFF" },
-        { roomId: room.id, name: "Volet 1", type: "BLIND", status: "OFF" },
-        { roomId: room.id, name: "Volet 2", type: "BLIND", status: "OFF" },
-        { roomId: room.id, name: "Capteur de présence", type: "PRESENCE_SENSOR", status: "ON" },
-      ],
-    });
-  }
-
-  // ── HVAC Units ─────────────────────────────────────────────────────────────
-  const hvacZones = [zoneA1, zoneA2, zoneA3, zoneA4, zoneB1, zoneB2, zoneC1, zoneC2, zoneD1];
-  const hvacTemps: Record<string, number> = {
-    [zoneA1.id]: 22.1, [zoneA2.id]: 21.5, [zoneA3.id]: 23.0, [zoneA4.id]: 20.8,
-    [zoneB1.id]: 22.5, [zoneB2.id]: 21.0, [zoneC1.id]: 20.3, [zoneC2.id]: 19.8,
-    [zoneD1.id]: 24.0,
+  // ── Equipment (avec consommation en watts) ────────────────────────────────
+  console.log("  Création des équipements…");
+  const powerW: Record<string, number> = {
+    LIGHT: 25, BLIND: 8, PRESENCE_SENSOR: 2, AIR_QUALITY_SENSOR: 3, COMPUTER: 120, DOOR: 5, OTHER: 10,
   };
-  const hvacModes: ("AUTO" | "ECO" | "MANUAL")[] = ["AUTO", "AUTO", "ECO", "MANUAL"];
-  for (const zone of hvacZones) {
-    const current = hvacTemps[zone.id] ?? 21.0;
+  for (const room of rooms) {
+    const isLab = room.type === "LAB";
+    const isOffice = room.type === "OFFICE";
+    const isTech = room.type === "OTHER";
+
+    await prisma.equipment.createMany({ data: [
+      { roomId: room.id, name: `Lumière — ${room.name}`, type: "LIGHT", status: pick(["ON","ON","ON","OFF"] as const), isOnline: Math.random() > 0.07, powerWatts: 25, lastUpdated: new Date() },
+      { roomId: room.id, name: `Capteur présence — ${room.name}`, type: "PRESENCE_SENSOR", status: "ON", isOnline: Math.random() > 0.05, powerWatts: 2, lastUpdated: new Date() },
+    ]});
+
+    if (isLab || isOffice) {
+      await prisma.equipment.createMany({ data: [
+        { roomId: room.id, name: `Volet — ${room.name}`, type: "BLIND", status: pick(["ON","OFF","OFF"] as const), isOnline: Math.random() > 0.10, powerWatts: 8, lastUpdated: new Date() },
+        { roomId: room.id, name: `Capteur CO₂ — ${room.name}`, type: "AIR_QUALITY_SENSOR", status: "ON", isOnline: Math.random() > 0.05, powerWatts: 3, lastUpdated: new Date() },
+      ]});
+    }
+
+    if (isLab) {
+      await prisma.equipment.create({ data: { roomId: room.id, name: `Ordinateur — ${room.name}`, type: "COMPUTER", status: pick(["ON","ON","OFF"] as const), isOnline: Math.random() > 0.08, powerWatts: 120, lastUpdated: new Date() } });
+    }
+
+    if (isTech) {
+      await prisma.equipment.create({ data: { roomId: room.id, name: `Système contrôle — ${room.name}`, type: "OTHER", status: "ON", isOnline: true, powerWatts: 45, lastUpdated: new Date() } });
+    }
+  }
+
+  // ── 20 Unités HVAC (climatiseurs) ─────────────────────────────────────────
+  console.log("  Création des 20 climatiseurs HVAC…");
+  type HvacDef = { name: string; zoneId?: string; roomId?: string; set: number; mode: "AUTO"|"ECO"|"MANUAL"|"OFF"; powerW: number };
+  const hvacDefs: HvacDef[] = [
+    { name: "HVAC Ampère Hall RDC",         zoneId: zA0.id, set: 21, mode: "AUTO",   powerW: 2200 },
+    { name: "HVAC Ampère Salles Cours RDC", zoneId: zA0.id, set: 21, mode: "AUTO",   powerW: 3500 },
+    { name: "HVAC Ampère Lab Info A201",    roomId: roomMap["Lab Info A201"].id, set: 20, mode: "ECO",    powerW: 1800 },
+    { name: "HVAC Ampère Lab Info A202",    roomId: roomMap["Lab Info A202"].id, set: 20, mode: "ECO",    powerW: 1800 },
+    { name: "HVAC Ampère Serveurs A301",    roomId: roomMap["Salle Serveurs A301"].id, set: 18, mode: "MANUAL", powerW: 4000 },
+    { name: "HVAC Curie Hall RDC",          zoneId: zC0.id, set: 21, mode: "AUTO",   powerW: 2200 },
+    { name: "HVAC Curie Salles Cours",      zoneId: zC0.id, set: 21, mode: "AUTO",   powerW: 3000 },
+    { name: "HVAC Curie Labo Chimie",       roomId: roomMap["Labo Chimie C201"].id, set: 19, mode: "MANUAL", powerW: 2500 },
+    { name: "HVAC Curie Labo Physique",     roomId: roomMap["Labo Physique C202"].id, set: 20, mode: "ECO",    powerW: 2200 },
+    { name: "HVAC Curie Étage 1",           zoneId: zC1.id, set: 20, mode: "AUTO",   powerW: 2000 },
+    { name: "HVAC Darwin Bibliothèque",     roomId: roomMap["Bibliothèque D101"].id, set: 21, mode: "AUTO",   powerW: 2000 },
+    { name: "HVAC Darwin Cafétéria",        roomId: roomMap["Cafétéria D103"].id, set: 22, mode: "AUTO",   powerW: 3500 },
+    { name: "HVAC Darwin Info D201",        roomId: roomMap["Salle Info D201"].id, set: 20, mode: "ECO",    powerW: 1800 },
+    { name: "HVAC Darwin Info D202",        roomId: roomMap["Salle Info D202"].id, set: 20, mode: "ECO",    powerW: 1800 },
+    { name: "HVAC Darwin RDC",              zoneId: zD0.id, set: 21, mode: "AUTO",   powerW: 2200 },
+    { name: "HVAC Résidence Hall",          zoneId: zR.id,  set: 20, mode: "AUTO",   powerW: 2000 },
+    { name: "HVAC Résidence Aile A",        zoneId: zR.id,  set: 19, mode: "ECO",    powerW: 3500 },
+    { name: "HVAC Résidence Aile B",        zoneId: zR.id,  set: 19, mode: "ECO",    powerW: 3500 },
+    { name: "HVAC Résidence Aile C",        zoneId: zR.id,  set: 20, mode: "AUTO",   powerW: 3000 },
+    { name: "HVAC Salle Commune Résid.",    roomId: roomMap["Salle Commune R"].id, set: 21, mode: "AUTO",   powerW: 1500 },
+  ];
+
+  const hvacStatuses = ["HEATING","COOLING","IDLE","IDLE","IDLE","OFF"] as const;
+  for (const h of hvacDefs) {
+    const isFault = Math.random() < 0.05;
     await prisma.hvacUnit.create({
       data: {
-        zoneId: zone.id,
-        name: `CVC ${zone.name}`,
-        mode: pick(hvacModes),
-        status: current > 22 ? "COOLING" : current < 20 ? "HEATING" : "IDLE",
-        setTemperature: 21.0,
-        currentTemperature: current,
-        powerWatts: rnd(500, 3000),
+        zoneId: h.zoneId ?? null,
+        roomId: h.roomId ?? null,
+        name: h.name,
+        mode: isFault ? "OFF" : h.mode,
+        status: isFault ? "FAULT" : pick(hvacStatuses),
+        setTemperature: h.set,
+        currentTemperature: parseFloat((h.set + rnd(-2.5, 2.5)).toFixed(1)),
+        isOnline: !isFault,
+        powerWatts: h.powerW,
+        lastUpdated: new Date(),
       },
     });
   }
 
-  // ── Parking lots & spots ──────────────────────────────────────────────────
-  const parkingDefs = [
-    { name: "Parking Ampère", shortName: "PA", total: 60 },
-    { name: "Parking Curie", shortName: "PC", total: 40 },
-    { name: "Parking Résidence", shortName: "PR", total: 30 },
+  // ── Lampadaires extérieurs ────────────────────────────────────────────────
+  console.log("  Création des lampadaires…");
+  const lightGroups = [
+    { prefix: "AMP", buildingId: ampere.id, count: 8 },
+    { prefix: "CUR", buildingId: curie.id,  count: 8 },
+    { prefix: "DAR", buildingId: darwin.id, count: 6 },
+    { prefix: "RES", buildingId: residence.id, count: 6 },
+    { prefix: "EXT", buildingId: null,       count: 8 },
   ];
-  for (const def of parkingDefs) {
-    const lot = await prisma.parkingLot.create({
-      data: { name: def.name, shortName: def.shortName, totalSpots: def.total },
-    });
-    const spots = [];
-    for (let i = 1; i <= def.total; i++) {
-      const isDisabled = i <= 3;
-      const isElectric = !isDisabled && i <= 8;
-      const statusOdds = Math.random();
-      const status: "FREE" | "OCCUPIED" | "RESERVED" =
-        statusOdds < 0.45 ? "OCCUPIED" : statusOdds < 0.55 ? "RESERVED" : "FREE";
-      spots.push({
-        lotId: lot.id,
-        number: String(i).padStart(3, "0"),
-        type: isDisabled ? ("DISABLED" as const) : isElectric ? ("ELECTRIC" as const) : ("STANDARD" as const),
-        status,
-      });
-    }
-    await prisma.parkingSpot.createMany({ data: spots });
-  }
-
-  // ── Street Lights ──────────────────────────────────────────────────────────
-  const lightBuildings = [buildingA, buildingB, buildingC, buildingD];
-  let lightIdx = 1;
-  for (const b of lightBuildings) {
-    const count = b.id === buildingA.id ? 12 : b.id === buildingB.id ? 8 : 6;
-    for (let i = 0; i < count; i++) {
+  for (const g of lightGroups) {
+    for (let i = 1; i <= g.count; i++) {
       const isFault = Math.random() < 0.08;
-      await prisma.streetLight.create({
-        data: {
-          buildingId: b.id,
-          identifier: `L${String(lightIdx++).padStart(3, "0")}`,
-          latitude: (b.latitude ?? 48.851) + rnd(-0.0005, 0.0005),
-          longitude: (b.longitude ?? 2.345) + rnd(-0.0005, 0.0005),
-          status: isFault ? "FAULT" : "ON",
-          mode: "AUTO",
-          powerWatts: pick([70, 100, 150]),
-          isOnline: !isFault,
-        },
-      });
+      await prisma.streetLight.create({ data: {
+        buildingId: g.buildingId,
+        identifier: `${g.prefix}-${String(i).padStart(2, "0")}`,
+        status: isFault ? "FAULT" : pick(["ON","ON","ON","OFF"] as const),
+        mode: pick(["AUTO","AUTO","MANUAL"] as const),
+        powerWatts: pick([70, 100, 150] as const),
+        isOnline: !isFault && Math.random() > 0.06,
+        lastUpdated: new Date(),
+      }});
     }
   }
 
-  // ── Courses ───────────────────────────────────────────────────────────────
-  const courseDefs = [
-    { code: "INF101", name: "Introduction à la Programmation", teacher: teachers[0], credits: 6 },
-    { code: "INF202", name: "Algorithmes et Structures de données", teacher: teachers[0], credits: 6 },
-    { code: "MAT101", name: "Analyse Mathématique", teacher: teachers[1], credits: 6 },
-    { code: "MAT202", name: "Algèbre Linéaire", teacher: teachers[1], credits: 6 },
-    { code: "PHY101", name: "Mécanique Classique", teacher: teachers[2], credits: 6 },
-    { code: "INF301", name: "Réseaux et Cybersécurité", teacher: teachers[3], credits: 4 },
-    { code: "INF302", name: "Intelligence Artificielle", teacher: teachers[3], credits: 4 },
-    { code: "ECO101", name: "Microéconomie", teacher: teachers[4], credits: 4 },
+  // ── 20 Lecteurs RFID (portes sécurisées) ─────────────────────────────────
+  console.log("  Création des 20 portes RFID sécurisées…");
+  type ReaderDef = { name: string; location: string; building: string; zone: string; floor: number; level: "LOW"|"STANDARD"|"HIGH"|"CRITICAL"; offline?: true };
+  const readerDefs: ReaderDef[] = [
+    { name: "Portail Nord",              location: "Entrée principale Nord",         building: "Extérieur",        zone: "Périmètre",   floor: 0,  level: "LOW" },
+    { name: "Portail Sud",               location: "Entrée principale Sud",          building: "Extérieur",        zone: "Périmètre",   floor: 0,  level: "LOW" },
+    { name: "Ampère — Hall RDC",         location: "Hall d'entrée Ampère",           building: "Bâtiment Ampère",  zone: "RDC",         floor: 0,  level: "LOW" },
+    { name: "Ampère — A101",             location: "Salle de cours A101",            building: "Bâtiment Ampère",  zone: "RDC",         floor: 0,  level: "STANDARD" },
+    { name: "Ampère — A102",             location: "Salle de cours A102",            building: "Bâtiment Ampère",  zone: "RDC",         floor: 0,  level: "STANDARD" },
+    { name: "Ampère — Lab Info A201",    location: "Laboratoire Informatique A201",  building: "Bâtiment Ampère",  zone: "Étage 1",     floor: 1,  level: "HIGH" },
+    { name: "Ampère — Lab Info A202",    location: "Laboratoire Informatique A202",  building: "Bâtiment Ampère",  zone: "Étage 1",     floor: 1,  level: "HIGH" },
+    { name: "Ampère — Salle Serveurs",   location: "Salle des serveurs A301",        building: "Bâtiment Ampère",  zone: "Étage 2",     floor: 2,  level: "CRITICAL" },
+    { name: "Curie — Hall RDC",          location: "Hall d'entrée Curie",            building: "Bâtiment Curie",   zone: "RDC",         floor: 0,  level: "LOW" },
+    { name: "Curie — C101",              location: "Salle de cours C101",            building: "Bâtiment Curie",   zone: "RDC",         floor: 0,  level: "STANDARD" },
+    { name: "Curie — Labo Chimie",       location: "Laboratoire Chimie C201",        building: "Bâtiment Curie",   zone: "Étage 1",     floor: 1,  level: "HIGH" },
+    { name: "Curie — Labo Physique",     location: "Laboratoire Physique C202",      building: "Bâtiment Curie",   zone: "Étage 1",     floor: 1,  level: "HIGH", offline: true },
+    { name: "Curie — Stockage Produits", location: "Stockage produits dangereux",    building: "Bâtiment Curie",   zone: "Étage 1",     floor: 1,  level: "CRITICAL" },
+    { name: "Darwin — Hall RDC",         location: "Hall d'entrée Darwin",           building: "Bâtiment Darwin",  zone: "RDC",         floor: 0,  level: "LOW" },
+    { name: "Darwin — Bibliothèque",     location: "Bibliothèque universitaire",     building: "Bâtiment Darwin",  zone: "RDC",         floor: 0,  level: "LOW" },
+    { name: "Darwin — Salle Info D201",  location: "Salle Informatique D201",        building: "Bâtiment Darwin",  zone: "Étage 1",     floor: 1,  level: "HIGH" },
+    { name: "Darwin — Salle Info D202",  location: "Salle Informatique D202",        building: "Bâtiment Darwin",  zone: "Étage 1",     floor: 1,  level: "HIGH" },
+    { name: "Résidence — Entrée",        location: "Entrée principale résidence",    building: "Résidence Campus", zone: "RDC",         floor: 0,  level: "LOW" },
+    { name: "Résidence — Salle Commune", location: "Salle commune résidence",        building: "Résidence Campus", zone: "RDC",         floor: 0,  level: "LOW" },
+    { name: "Service Informatique",      location: "DSI — Support informatique",     building: "Bâtiment Ampère",  zone: "Étage 2",     floor: 2,  level: "HIGH" },
   ];
-  const courses = await Promise.all(
-    courseDefs.map((c) =>
-      prisma.course.create({
-        data: {
-          code: c.code,
-          name: c.name,
-          teacherId: c.teacher.id,
-          credits: c.credits,
-          description: `Cours de ${c.name} dispensé au campus.`,
-        },
-      })
-    )
-  );
 
-  // ── Course Sessions (5 jours) ──────────────────────────────────────────────
-  const courseRooms = roomsAmpere.slice(0, 6);
-  const sessions = [];
-  for (let dayOffset = -4; dayOffset <= 0; dayOffset++) {
-    const date = daysAgo(-dayOffset);
-    date.setHours(0, 0, 0, 0);
+  const createdReaders: { id: string; name: string; location: string; level: string }[] = [];
+  for (const def of readerDefs) {
+    const lastSeen = new Date();
+    if (def.offline) lastSeen.setHours(lastSeen.getHours() - rndInt(3, 48));
+    const r = await prisma.rfidReader.create({ data: {
+      name: def.name, location: def.location, building: def.building,
+      zone: def.zone, floor: def.floor, securityLevel: def.level,
+      isOnline: !def.offline, lastSeen,
+      allowedRoles: JSON.stringify(ROLES_FOR_LEVEL[def.level]),
+    }});
+    createdReaders.push({ id: r.id, name: r.name, location: r.location, level: def.level });
+  }
+  console.log(`  ${createdReaders.length} portes RFID créées.`);
 
-    const daySchedule = [
-      { course: courses[0], room: courseRooms[0], start: "08:00", end: "10:00" },
-      { course: courses[2], room: courseRooms[1], start: "08:00", end: "10:00" },
-      { course: courses[1], room: courseRooms[0], start: "10:15", end: "12:15" },
-      { course: courses[3], room: courseRooms[2], start: "10:15", end: "12:15" },
-      { course: courses[4], room: courseRooms[3], start: "13:30", end: "15:30" },
-      { course: courses[5], room: courseRooms[1], start: "13:30", end: "15:30" },
-      { course: courses[6], room: courseRooms[4], start: "15:45", end: "17:45" },
-      { course: courses[7], room: courseRooms[5], start: "15:45", end: "17:45" },
-    ];
-
-    for (const slot of daySchedule) {
-      const s = await prisma.courseSession.create({
-        data: {
-          courseId: slot.course.id,
-          roomId: slot.room.id,
-          date,
-          startTime: slot.start,
-          endTime: slot.end,
-        },
-      });
-      sessions.push(s);
-    }
+  // ── Incidents ─────────────────────────────────────────────────────────────
+  const now = new Date();
+  const incidentDefs = [
+    { title: "Lampadaire EXT-03 en panne",               category: "LIGHTING",   priority: "HIGH",     status: "OPEN",        daysAgo: 2 },
+    { title: "HVAC Curie Labo Chimie — surchauffe",      category: "HVAC",       priority: "MEDIUM",   status: "IN_PROGRESS", daysAgo: 1 },
+    { title: "Salle Serveurs : alerte température",      category: "EQUIPMENT",  priority: "CRITICAL", status: "OPEN",        daysAgo: 0 },
+    { title: "Lecteur RFID Curie Labo Physique HS",      category: "ACCESS",     priority: "HIGH",     status: "OPEN",        daysAgo: 3 },
+    { title: "Capteur CO₂ A101 — valeur aberrante",      category: "EQUIPMENT",  priority: "MEDIUM",   status: "OPEN",        daysAgo: 5 },
+    { title: "Badge inconnu — tentatives répétées",      category: "ACCESS",     priority: "HIGH",     status: "OPEN",        daysAgo: 1 },
+    { title: "Volet bloqué Ampère A102",                 category: "BLIND",      priority: "LOW",      status: "RESOLVED",    daysAgo: 8 },
+    { title: "Éclairage cafétéria Darwin défaillant",    category: "LIGHTING",   priority: "MEDIUM",   status: "RESOLVED",    daysAgo: 12 },
+    { title: "HVAC Résidence Aile A — bruit anormal",    category: "HVAC",       priority: "LOW",      status: "IN_PROGRESS", daysAgo: 4 },
+    { title: "Tentative accès Salle Serveurs refusée",   category: "ACCESS",     priority: "CRITICAL", status: "OPEN",        daysAgo: 0 },
+  ] as const;
+  for (const inc of incidentDefs) {
+    const createdAt = new Date(now); createdAt.setDate(createdAt.getDate() - inc.daysAgo);
+    await prisma.incident.create({ data: {
+      title: inc.title,
+      description: "Incident détecté automatiquement par le système de supervision du campus.",
+      category: inc.category,
+      priority: inc.priority,
+      status: inc.status,
+      createdAt,
+      resolvedAt: inc.status === "RESOLVED" ? new Date(createdAt.getTime() + 48 * 3600_000) : null,
+    }});
   }
 
-  // ── Attendances ───────────────────────────────────────────────────────────
-  for (const session of sessions) {
-    const sampleStudents = students.slice(0, 30);
-    for (const student of sampleStudents) {
-      const present = Math.random() < 0.85;
-      await prisma.attendance.create({
-        data: {
-          sessionId: session.id,
-          studentId: student.id,
-          isPresent: present,
-          checkedInAt: present ? new Date(session.date.getTime() + 5 * 60000) : null,
-        },
-      });
-    }
-  }
+  // ── Sensor Readings : Énergie + Température (30 jours) ───────────────────
+  console.log("  Génération des relevés énergétiques (30 jours)…");
+  const buildings = [ampere, curie, darwin, residence];
+  const energyRows: { buildingId: string; type: "ENERGY"; value: number; unit: string; timestamp: Date }[] = [];
+  const tempRows:   { buildingId: string; type: "TEMPERATURE"; value: number; unit: string; timestamp: Date }[] = [];
 
-  // ── Dorm assignments (assign 30 students to dorm rooms) ───────────────────
-  const semesterStart = new Date("2026-09-01");
-  const semesterEnd = new Date("2027-06-30");
-  for (let i = 0; i < 30; i++) {
-    await prisma.dormAssignment.create({
-      data: {
-        roomId: dormRooms[i].id,
-        studentId: students[i].id,
-        startDate: semesterStart,
-        endDate: semesterEnd,
-        isActive: true,
-      },
-    });
-  }
+  // Base consommation horaire par bâtiment (Wh) — inclut HVAC + éclairage + équipements
+  const buildingBaseW: Record<string, { day: number; night: number }> = {
+    [ampere.id]:   { day: 3500, night: 450 },  // serveurs + labs
+    [curie.id]:    { day: 3000, night: 400 },  // labos chimie/physique
+    [darwin.id]:   { day: 2200, night: 300 },  // bibli + cafét
+    [residence.id]:{ day: 1200, night: 800 },  // résidence 24h
+  };
 
-  // ── Campus presences (last 3 days) ────────────────────────────────────────
-  for (const student of students) {
-    for (let d = 0; d < 3; d++) {
-      const date = daysAgo(d);
-      if (Math.random() < 0.7) {
-        const checkIn = new Date(date);
-        checkIn.setHours(rndInt(7, 9), rndInt(0, 59), 0, 0);
-        const checkOut = new Date(checkIn);
-        checkOut.setHours(rndInt(16, 20), rndInt(0, 59), 0, 0);
-        await prisma.campusPresence.create({
-          data: {
-            studentId: student.id,
-            buildingId: pick([buildingA, buildingB, buildingC]).id,
-            badgeId: `BADGE-${student.studentNumber}`,
-            checkedInAt: checkIn,
-            checkedOutAt: d === 0 && Math.random() < 0.3 ? null : checkOut,
-          },
-        });
+  for (let dayAgo = 30; dayAgo >= 0; dayAgo--) {
+    const dayDate = new Date(now);
+    dayDate.setDate(dayDate.getDate() - dayAgo);
+    dayDate.setHours(0, 0, 0, 0);
+    const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+
+    for (const b of buildings) {
+      const base = buildingBaseW[b.id];
+      for (let h = 0; h < 24; h++) {
+        const ts = new Date(dayDate); ts.setHours(h, rndInt(0, 59));
+        const isDay = h >= 7 && h <= 20;
+        const wkFactor = isWeekend ? 0.4 : 1;
+        const baseVal = isDay ? base.day : base.night;
+        const noise = rnd(0.85, 1.15);
+        energyRows.push({ buildingId: b.id, type: "ENERGY", value: parseFloat((baseVal * wkFactor * noise).toFixed(0)), unit: "Wh", timestamp: ts });
+      }
+
+      // Température toutes les 3h
+      for (let h = 0; h < 24; h += 3) {
+        const ts = new Date(dayDate); ts.setHours(h, rndInt(0, 59));
+        const isNight = h < 7 || h > 21;
+        const baseTemp = isNight ? rnd(17.5, 19.5) : rnd(19.5, 23.0);
+        tempRows.push({ buildingId: b.id, type: "TEMPERATURE", value: parseFloat(baseTemp.toFixed(1)), unit: "°C", timestamp: ts });
       }
     }
   }
 
-  // ── Sensor readings (temperature + energy, 7 days, every 30 min) ──────────
-  const sensorRooms = roomsAmpere.slice(0, 5);
-  const now = new Date();
-  for (const room of sensorRooms) {
-    for (let h = 0; h < 7 * 24; h += 0.5) {
-      const ts = new Date(now.getTime() - h * 3600 * 1000);
-      const hour = ts.getHours();
-      const isWorking = hour >= 8 && hour <= 18;
-      await prisma.sensorReading.createMany({
-        data: [
-          {
-            roomId: room.id,
-            buildingId: buildingA.id,
-            type: "TEMPERATURE",
-            value: isWorking ? rnd(20.5, 23.5) : rnd(17.0, 20.0),
-            unit: "°C",
-            timestamp: ts,
-          },
-          {
-            roomId: room.id,
-            buildingId: buildingA.id,
-            type: "ENERGY",
-            value: isWorking ? rnd(1.5, 4.5) : rnd(0.1, 0.5),
-            unit: "kWh",
-            timestamp: ts,
-          },
-        ],
-      });
-    }
+  // Insert en batch de 500
+  const BATCH = 500;
+  for (let i = 0; i < energyRows.length; i += BATCH) {
+    await prisma.sensorReading.createMany({ data: energyRows.slice(i, i + BATCH) });
   }
-
-  // ── Occupancy records (last 7 days, hourly) ───────────────────────────────
-  const occupancyRooms = roomsAmpere.slice(0, 4);
-  for (const room of occupancyRooms) {
-    for (let h = 0; h < 7 * 24; h++) {
-      const ts = new Date(now.getTime() - h * 3600 * 1000);
-      const hour = ts.getHours();
-      const isLecture = hour >= 8 && hour <= 18 && h < 24;
-      const count = isLecture ? rndInt(10, room.capacity) : rndInt(0, 5);
-      await prisma.occupancyRecord.create({
-        data: {
-          roomId: room.id,
-          occupantCount: count,
-          capacity: room.capacity,
-          rate: count / room.capacity,
-          source: "SENSOR",
-          timestamp: ts,
-        },
-      });
-    }
+  for (let i = 0; i < tempRows.length; i += BATCH) {
+    await prisma.sensorReading.createMany({ data: tempRows.slice(i, i + BATCH) });
   }
+  console.log(`  ${energyRows.length} relevés énergie + ${tempRows.length} relevés température insérés.`);
 
-  // ── Incidents ─────────────────────────────────────────────────────────────
-  const incidentData = [
-    {
-      title: "Lampadaire L003 hors service",
-      description: "Le lampadaire L003 ne s'allume plus depuis ce matin.",
-      category: "LIGHTING" as const,
-      status: "OPEN" as const,
-      priority: "MEDIUM" as const,
-      reportedById: students[0].userId,
-    },
-    {
-      title: "Clim défaillante en A102",
-      description: "La climatisation de la salle A102 fait un bruit anormal.",
-      category: "HVAC" as const,
-      status: "IN_PROGRESS" as const,
-      priority: "HIGH" as const,
-      reportedById: teachers[0].id,
-      assignedToId: maintenance1.id,
-    },
-    {
-      title: "Volet bloqué en A003",
-      description: "Le volet 2 de la salle A003 est bloqué en position fermée.",
-      category: "BLIND" as const,
-      status: "RESOLVED" as const,
-      priority: "LOW" as const,
-      reportedById: teachers[1].id,
-      assignedToId: maintenance2.id,
-      resolvedAt: daysAgo(1),
-      resolutionNote: "Volet remplacé.",
-    },
-    {
-      title: "Capteur présence B101 HS",
-      description: "Le capteur de présence du bureau B101 n'envoie plus de données.",
-      category: "EQUIPMENT" as const,
-      status: "OPEN" as const,
-      priority: "LOW" as const,
-      reportedById: admin.id,
-    },
-    {
-      title: "Salle vide encore climatisée (A201)",
-      description: "Alerte automatique : salle A201 vide depuis 2h, climatisation active.",
-      category: "HVAC" as const,
-      status: "OPEN" as const,
-      priority: "MEDIUM" as const,
-      reportedById: admin.id,
-    },
+  // ── Porteurs de badges (pool de 40 personnes) ─────────────────────────────
+  const badgeHolders = [
+    { badge: "BADGE-0001", name: "Sophie Martin",      role: "ADMINISTRATEUR" },
+    { badge: "BADGE-0002", name: "Luc Bernard",        role: "ADMINISTRATEUR" },
+    { badge: "BADGE-0003", name: "Fatima Benali",      role: "RESPONSABLE_SECURITE" },
+    { badge: "BADGE-0004", name: "Marc Dupont",        role: "RESPONSABLE_IOT" },
+    { badge: "BADGE-0005", name: "Claire Rousseau",    role: "RESPONSABLE_ENERGIE" },
+    { badge: "BADGE-0006", name: "Antoine Moreau",     role: "AGENT_MAINTENANCE" },
+    { badge: "BADGE-0007", name: "Sarah Lefebvre",     role: "AGENT_MAINTENANCE" },
+    { badge: "BADGE-0008", name: "Karim Mansouri",     role: "AGENT_MAINTENANCE" },
+    { badge: "BADGE-0009", name: "Julie Vincent",      role: "PERSONNEL_TECHNIQUE" },
+    { badge: "BADGE-0010", name: "Thomas Garcia",      role: "PERSONNEL_TECHNIQUE" },
+    { badge: "BADGE-0011", name: "Marie Leclerc",      role: "PERSONNEL_ADMINISTRATIF" },
+    { badge: "BADGE-0012", name: "Pierre Blanchard",   role: "PERSONNEL_ADMINISTRATIF" },
+    { badge: "BADGE-0013", name: "Emma Durand",        role: "PERSONNEL_ADMINISTRATIF" },
+    { badge: "BADGE-0014", name: "Prof. Dubois J.",    role: "ENSEIGNANT" },
+    { badge: "BADGE-0015", name: "Prof. Leroy M.",     role: "ENSEIGNANT" },
+    { badge: "BADGE-0016", name: "Prof. Garcia C.",    role: "ENSEIGNANT" },
+    { badge: "BADGE-0017", name: "Prof. Zhang W.",     role: "ENSEIGNANT" },
+    { badge: "BADGE-0018", name: "Nadia Chevalier",    role: "AGENT_ENTRETIEN" },
+    { badge: "BADGE-0019", name: "Omar Dridi",         role: "AGENT_ENTRETIEN" },
+    { badge: "BADGE-0020", name: "Alex Robert",        role: "PRESTATAIRE" },
+    { badge: "BADGE-0021", name: "Iris Fontaine",      role: "VISITEUR" },
+    { badge: "BADGE-0022", name: "Alice Morel",        role: "ETUDIANT" },
+    { badge: "BADGE-0023", name: "Baptiste Simon",     role: "ETUDIANT" },
+    { badge: "BADGE-0024", name: "Camille Laurent",    role: "ETUDIANT" },
+    { badge: "BADGE-0025", name: "David Petit",        role: "ETUDIANT" },
+    { badge: "BADGE-0026", name: "Emma Garnier",       role: "ETUDIANT" },
+    { badge: "BADGE-0027", name: "François Roux",      role: "ETUDIANT" },
+    { badge: "BADGE-0028", name: "Gabrielle André",    role: "ETUDIANT" },
+    { badge: "BADGE-0029", name: "Hugo Michel",        role: "ETUDIANT" },
+    { badge: "BADGE-0030", name: "Inès Faure",         role: "ETUDIANT" },
+    { badge: "BADGE-0031", name: "Jules Bonnet",       role: "ETUDIANT" },
+    { badge: "BADGE-0032", name: "Kenza Lambert",      role: "ETUDIANT" },
+    { badge: "BADGE-0033", name: "Léo Martinez",       role: "ETUDIANT" },
+    { badge: "BADGE-0034", name: "Manon Richard",      role: "ETUDIANT" },
+    { badge: "BADGE-0035", name: "Nathan Girard",      role: "ETUDIANT" },
+    { badge: "BADGE-0036", name: "Océane Legrand",     role: "ETUDIANT" },
+    { badge: "BADGE-0037", name: "Paul Fournier",      role: "ETUDIANT" },
+    { badge: "BADGE-0038", name: "Rania Bouaziz",      role: "ETUDIANT" },
+    // Badge inconnu simulé (ne figure pas dans le pool)
+    { badge: "BADGE-UNKN", name: "Inconnu",            role: "ETUDIANT" },
   ];
-  for (const inc of incidentData) {
-    await prisma.incident.create({
-      data: {
-        ...inc,
-        roomId: pick(roomsAmpere).id,
-      },
-    });
+
+  // ── ~200 Événements d'accès avec blockchain ───────────────────────────────
+  console.log("  Génération des événements d'accès (7 jours)…");
+
+  type RawEvent = {
+    badgeNumber: string; holderName: string; holderRole: string;
+    readerId: string; readerName: string; location: string;
+    result: string; reason: string | null; timestamp: Date;
+  };
+
+  const rawEvents: RawEvent[] = [];
+
+  // Pondération horaire (pic 8h-10h, 13h-17h)
+  const hourW = [0,0,0,0,0,0, 0.5,1.5,3,2.5, 1.5,1.5,2,2.5,2,1.5, 1.5,2,1.5,0.8, 0.3,0.1,0,0];
+  const totalHW = hourW.reduce((s, w) => s + w, 0);
+
+  function pickHour(): number {
+    let r = Math.random() * totalHW;
+    for (let h = 0; h < 24; h++) { r -= hourW[h]; if (r <= 0) return h; }
+    return 8;
   }
 
-  // ── Access logs ────────────────────────────────────────────────────────────
-  const accessLocations = ["Entrée Bâtiment Ampère", "Entrée Bâtiment Curie", "Résidence – Portail", "Parking Ampère"];
-  for (const student of students.slice(0, 20)) {
-    for (let d = 0; d < 3; d++) {
-      const ts = daysAgo(d);
-      ts.setHours(rndInt(7, 9), rndInt(0, 59), 0, 0);
-      await prisma.accessLog.create({
-        data: {
-          userId: student.userId,
-          action: "ENTRY",
-          location: pick(accessLocations),
-          badgeId: `BADGE-STU${student.studentNumber}`,
-          timestamp: ts,
-          isSuccess: Math.random() > 0.05,
-        },
+  for (let dayAgo = 6; dayAgo >= 0; dayAgo--) {
+    const dayDate = new Date(now);
+    dayDate.setDate(dayDate.getDate() - dayAgo);
+    dayDate.setHours(0, 0, 0, 0);
+    const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+    const count = isWeekend ? rndInt(18, 30) : rndInt(30, 40);
+
+    for (let e = 0; e < count; e++) {
+      const holder = pick(badgeHolders);
+      const reader = pick(createdReaders);
+      const allowed: string[] = ROLES_FOR_LEVEL[reader.level] ?? [];
+
+      const hour = pickHour();
+      const ts = new Date(dayDate);
+      ts.setHours(hour, rndInt(0, 59), rndInt(0, 59));
+
+      let result = "GRANTED";
+      let reason: string | null = null;
+
+      // Badge inconnu → toujours refusé
+      if (holder.badge === "BADGE-UNKN") {
+        result = "DENIED"; reason = "BADGE_UNKNOWN";
+      } else if (!allowed.includes(holder.role)) {
+        result = "DENIED"; reason = "ROLE_INSUFFICIENT";
+      } else {
+        const rand = Math.random();
+        if (rand < 0.008)       { result = "DENIED"; reason = "BADGE_DISABLED"; }
+        else if (rand < 0.014)  { result = "DENIED"; reason = "BADGE_EXPIRED"; }
+        else if (rand < 0.018)  { result = "DENIED"; reason = "ACCESS_FORBIDDEN"; }
+        else if ((holder.role === "VISITEUR" || holder.role === "PRESTATAIRE") && (hour < 8 || hour >= 20)) {
+          result = "DENIED"; reason = "OUT_OF_HOURS";
+        }
+      }
+
+      rawEvents.push({
+        badgeNumber: holder.badge, holderName: holder.name, holderRole: holder.role,
+        readerId: reader.id, readerName: reader.name, location: reader.location,
+        result, reason, timestamp: ts,
       });
     }
   }
-  // One denied access for demo
-  await prisma.accessLog.create({
-    data: {
-      userId: students[3].userId,
-      action: "DENIED",
-      location: "Bureau Direction B102",
-      badgeId: `BADGE-STU${students[3].studentNumber}`,
-      timestamp: daysAgo(1),
-      isSuccess: false,
-      notes: "Accès zone restreinte refusé – rôle insuffisant",
-    },
-  });
 
-  // ── Notifications ─────────────────────────────────────────────────────────
-  const notifData = [
-    {
-      userId: admin.id,
-      type: "ALERT" as const,
-      title: "Parking Ampère presque plein",
-      body: "Le parking PA atteint 88% d'occupation. 7 places libres restantes.",
-    },
-    {
-      userId: admin.id,
-      type: "CRITICAL" as const,
-      title: "Consommation anormale détectée",
-      body: "La consommation du Bâtiment A dépasse la moyenne de 40% depuis 2h.",
-    },
-    {
-      userId: maintenance1.id,
-      type: "WARNING" as const,
-      title: "Incident affecté – Clim A102",
-      body: "L'incident #2 (Clim défaillante A102) vous a été assigné.",
-    },
-    {
-      userId: students[0].userId,
-      type: "INFO" as const,
-      title: "Réservation parking confirmée",
-      body: "Votre place PA-012 est réservée aujourd'hui de 9h à 17h.",
-    },
+  // Ajouter quelques événements critiques fixes pour alimenter les alertes
+  const serverReader = createdReaders.find(r => r.name === "Ampère — Salle Serveurs")!;
+  const extraCritical: RawEvent[] = [
+    { badgeNumber: "BADGE-UNKN", holderName: "Inconnu", holderRole: "ETUDIANT", readerId: serverReader.id, readerName: serverReader.name, location: serverReader.location, result: "DENIED", reason: "BADGE_UNKNOWN", timestamp: new Date(now.getTime() - 1 * 3600_000) },
+    { badgeNumber: "BADGE-0033", holderName: "Léo Martinez",  holderRole: "ETUDIANT", readerId: serverReader.id, readerName: serverReader.name, location: serverReader.location, result: "DENIED", reason: "ROLE_INSUFFICIENT", timestamp: new Date(now.getTime() - 2 * 3600_000) },
+    { badgeNumber: "BADGE-UNKN", holderName: "Inconnu", holderRole: "ETUDIANT", readerId: serverReader.id, readerName: serverReader.name, location: serverReader.location, result: "DENIED", reason: "BADGE_UNKNOWN", timestamp: new Date(now.getTime() - 30 * 60_000) },
+    { badgeNumber: "BADGE-0020", holderName: "Alex Robert",   holderRole: "PRESTATAIRE", readerId: serverReader.id, readerName: serverReader.name, location: serverReader.location, result: "DENIED", reason: "ROLE_INSUFFICIENT", timestamp: new Date(now.getTime() - 45 * 60_000) },
   ];
-  await prisma.notification.createMany({ data: notifData });
+  rawEvents.push(...extraCritical);
 
-  console.log("✅ Seed terminé avec succès !");
-  console.log(`   • ${await prisma.user.count()} utilisateurs`);
-  console.log(`   • ${await prisma.student.count()} étudiants`);
-  console.log(`   • ${await prisma.building.count()} bâtiments`);
-  console.log(`   • ${await prisma.room.count()} salles`);
-  console.log(`   • ${await prisma.hvacUnit.count()} unités HVAC`);
-  console.log(`   • ${await prisma.parkingSpot.count()} places de parking`);
-  console.log(`   • ${await prisma.streetLight.count()} lampadaires`);
-  console.log(`   • ${await prisma.course.count()} cours / ${await prisma.courseSession.count()} sessions`);
-  console.log(`   • ${await prisma.sensorReading.count()} relevés capteurs`);
-  console.log(`   • ${await prisma.incident.count()} incidents`);
+  // Trier par timestamp
+  rawEvents.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
-  // ── Demo shortcut accounts ─────────────────────────────────────────────────
-  // Guaranteed simple-email demo accounts for easy testing
-  const demoTeacher = await prisma.user.create({
-    data: {
-      email: "prof@campus.fr",
-      passwordHash: hash("Prof1234!"),
-      firstName: "Demo",
-      lastName: "Enseignant",
-      role: "TEACHER",
-    },
-  });
-  // Assign the demo teacher to the first course so they have data
-  const firstCourse = await prisma.course.findFirst();
-  if (firstCourse) {
-    await prisma.course.create({
-      data: {
-        code: "DEMO101",
-        name: "Cours de démonstration",
-        teacherId: demoTeacher.id,
-        credits: 3,
-        description: "Cours de démonstration pour le compte prof@campus.fr",
-      },
+  // Calcul des hashes blockchain
+  const GENESIS = "0000000000000000000000000000000000000000000000000000000000000000";
+  let prevHash = GENESIS;
+  const finalEvents = rawEvents.map((e, index) => {
+    const blockData = JSON.stringify({
+      index, prevHash,
+      timestamp: e.timestamp.toISOString(),
+      badgeNumber: e.badgeNumber,
+      holderName: e.holderName,
+      holderRole: e.holderRole,
+      readerId: e.readerId,
+      result: e.result,
+      reason: e.reason,
+      location: e.location,
     });
+    const blockHash = sha256(blockData);
+    const event = { ...e, blockIndex: index, blockHash, prevHash, blockData };
+    prevHash = blockHash;
+    return event;
+  });
+
+  // Insert en batch de 50
+  for (let i = 0; i < finalEvents.length; i += 50) {
+    await prisma.accessEvent.createMany({ data: finalEvents.slice(i, i + 50) });
   }
+  const denied = finalEvents.filter(e => e.result === "DENIED").length;
+  console.log(`  ${finalEvents.length} événements d'accès créés (${denied} refusés).`);
 
-  const demoStudent = await prisma.user.create({
-    data: {
-      email: "etudiant@campus.fr",
-      passwordHash: hash("Etudiant1!"),
-      firstName: "Demo",
-      lastName: "Etudiant",
-      role: "STUDENT",
-    },
-  });
-  const demoStudentCount = await prisma.student.count();
-  await prisma.student.create({
-    data: {
-      userId: demoStudent.id,
-      studentNumber: `ETU${String(demoStudentCount + 1).padStart(5, "0")}`,
-      year: 2,
-      program: "Informatique",
-    },
-  });
-
-  await prisma.user.create({
-    data: {
-      email: "maintenance@campus.fr",
-      passwordHash: hash("Maint1234!"),
-      firstName: "Demo",
-      lastName: "Maintenance",
-      role: "MAINTENANCE",
-    },
-  });
-
-  console.log("📋 Comptes de démonstration :");
-  console.log("   admin@campus.fr       / Admin1234!  (Admin)");
-  console.log("   prof@campus.fr        / Prof1234!   (Enseignant)");
-  console.log("   etudiant@campus.fr    / Etudiant1!  (Étudiant)");
-  console.log("   maintenance@campus.fr / Maint1234!  (Maintenance)");
+  // ─── Résumé ────────────────────────────────────────────────────────────────
+  console.log("\n✅ Base de données initialisée avec succès!\n");
+  console.log("  • 4 bâtiments");
+  console.log("  • 8 zones");
+  console.log(`  • ${rooms.length} salles`);
+  console.log("  • 20 climatiseurs HVAC");
+  console.log(`  • ${36} lampadaires`);
+  console.log("  • 20 portes sécurisées RFID");
+  console.log(`  • ${finalEvents.length} événements d'accès blockchain`);
+  console.log(`  • ${energyRows.length} relevés énergétiques (30j)`);
+  console.log(`  • ${tempRows.length} relevés température (30j)`);
+  console.log("  • 10 incidents campus");
 }
 
 main()
-  .catch((e) => { console.error(e); process.exit(1); })
-  .finally(async () => { await prisma.$disconnect(); process.exit(0); });
+  .catch(e => { console.error(e); process.exit(1); })
+  .finally(() => prisma.$disconnect());
