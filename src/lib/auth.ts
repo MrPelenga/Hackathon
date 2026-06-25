@@ -20,10 +20,23 @@ export const authOptions: NextAuthOptions = {
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
-        if (!user || !user.isActive) return null;
+
+        if (!user || !user.isActive) {
+          if (user) {
+            await prisma.accessLog.create({
+              data: { userId: user.id, action: "DENIED", location: "Connexion web", isSuccess: false, notes: "Compte inactif" },
+            });
+          }
+          return null;
+        }
 
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) return null;
+        if (!valid) {
+          await prisma.accessLog.create({
+            data: { userId: user.id, action: "DENIED", location: "Connexion web", isSuccess: false, notes: "Mot de passe incorrect" },
+          });
+          return null;
+        }
 
         return {
           id: user.id,
@@ -34,6 +47,20 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
+  events: {
+    async signIn({ user }) {
+      await prisma.accessLog.create({
+        data: { userId: user.id, action: "ENTRY", location: "Connexion web", isSuccess: true },
+      });
+    },
+    async signOut({ token }) {
+      if (token?.id) {
+        await prisma.accessLog.create({
+          data: { userId: token.id as string, action: "EXIT", location: "Déconnexion web", isSuccess: true },
+        });
+      }
+    },
+  },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ParkingSquare, Lightbulb, Building2, Thermometer,
   LayoutGrid, BedDouble, Users, CalendarDays, BookOpen, Zap, TrendingUp,
-  ShieldCheck, AlertTriangle, Bell,
+  ShieldCheck, AlertTriangle, Bell, UserCog, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "@/lib/nav";
@@ -15,7 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutDashboard, ParkingSquare, Lightbulb, Building2, Thermometer,
   LayoutGrid, BedDouble, Users, CalendarDays, BookOpen, Zap, TrendingUp,
-  ShieldCheck, AlertTriangle, Bell,
+  ShieldCheck, AlertTriangle, Bell, UserCog, Settings,
 };
 
 interface SidebarProps {

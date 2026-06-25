@@ -1,17 +1,19 @@
 export const dynamic = "force-dynamic";
+import { requireAuth } from "@/lib/server-auth";
 import prisma from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { AlertTriangle, Clock, CheckCircle, Activity } from "lucide-react";
+import { ReportIncidentForm } from "./_components/ReportIncidentForm";
+import { UpdateStatusButton } from "./_components/UpdateStatusButton";
 
 const statusLabel: Record<string, string> = {
   OPEN: "Ouvert", IN_PROGRESS: "En cours", RESOLVED: "Résolu", CLOSED: "Fermé",
 };
 const statusColor: Record<string, string> = {
-  OPEN: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
-  IN_PROGRESS: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
-  RESOLVED: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+  OPEN: "bg-red-100 text-red-700",
+  IN_PROGRESS: "bg-amber-100 text-amber-700",
+  RESOLVED: "bg-emerald-100 text-emerald-700",
   CLOSED: "bg-slate-100 text-slate-600",
 };
 const priorityColor: Record<string, string> = {
@@ -22,8 +24,20 @@ const categoryLabel: Record<string, string> = {
   ACCESS: "Accès", PARKING: "Parking", OTHER: "Autre",
 };
 
-async function IncidentsOverview() {
-  const incidents = await prisma.incident.findMany({
+async function getData(role: string, userId: string) {
+  if (role === "ADMIN" || role === "MAINTENANCE") {
+    return prisma.incident.findMany({
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      include: {
+        room: { select: { name: true } },
+        reportedBy: { select: { firstName: true, lastName: true } },
+        assignedTo: { select: { firstName: true, lastName: true } },
+      },
+    });
+  }
+  // TEACHER and STUDENT: only their own reports
+  return prisma.incident.findMany({
+    where: { reportedById: userId },
     orderBy: { createdAt: "desc" },
     include: {
       room: { select: { name: true } },
@@ -31,17 +45,28 @@ async function IncidentsOverview() {
       assignedTo: { select: { firstName: true, lastName: true } },
     },
   });
+}
+
+export default async function IncidentsPage() {
+  const user = await requireAuth();
+  const incidents = await getData(user.role, user.id);
 
   const open = incidents.filter((i) => i.status === "OPEN").length;
   const inProgress = incidents.filter((i) => i.status === "IN_PROGRESS").length;
   const resolved = incidents.filter((i) => i.status === "RESOLVED" || i.status === "CLOSED").length;
   const critical = incidents.filter((i) => i.priority === "CRITICAL" || i.priority === "HIGH").length;
+  const canManage = user.role === "ADMIN" || user.role === "MAINTENANCE";
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Incidents & Maintenance</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Suivi des signalements et de leur traitement</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Incidents & Maintenance</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {canManage ? "Suivi et traitement des signalements" : "Mes signalements"}
+          </p>
+        </div>
+        <ReportIncidentForm />
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -53,7 +78,9 @@ async function IncidentsOverview() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Tous les incidents</CardTitle>
+          <CardTitle className="text-base">
+            {canManage ? "Tous les incidents" : "Mes signalements"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
@@ -77,21 +104,22 @@ async function IncidentsOverview() {
                     {inc.assignedTo && <span>→ {inc.assignedTo.firstName} {inc.assignedTo.lastName}</span>}
                   </div>
                 </div>
-                <span className="text-[11px] text-muted-foreground whitespace-nowrap mt-0.5">
-                  {new Date(inc.createdAt).toLocaleDateString("fr-FR")}
-                </span>
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <span className="text-[11px] text-muted-foreground">
+                    {new Date(inc.createdAt).toLocaleDateString("fr-FR")}
+                  </span>
+                  {canManage && <UpdateStatusButton incidentId={inc.id} currentStatus={inc.status} />}
+                </div>
               </div>
             ))}
             {incidents.length === 0 && (
-              <p className="text-sm text-muted-foreground py-6 text-center">Aucun incident enregistré.</p>
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                {canManage ? "Aucun incident enregistré." : "Vous n'avez signalé aucun incident."}
+              </p>
             )}
           </div>
         </CardContent>
       </Card>
     </div>
   );
-}
-
-export default function IncidentsPage() {
-  return <IncidentsOverview />;
 }

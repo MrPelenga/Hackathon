@@ -1,22 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { Building2, Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { Building2, Eye, EyeOff, Lock, Mail, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const justRegistered = searchParams.get("registered") === "1";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,6 +52,16 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold tracking-tight">Smart Campus</h1>
           <p className="text-sm text-slate-400">Centre de pilotage</p>
         </div>
+
+        {/* Registration success banner */}
+        {justRegistered && (
+          <Alert className="border-emerald-700 bg-emerald-900/40 text-emerald-300">
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              Compte créé avec succès. Connectez-vous ci-dessous.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Form card */}
         <Card className="border-slate-700 bg-slate-800/60 backdrop-blur">
@@ -115,11 +129,26 @@ export default function LoginPage() {
         <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-3 text-xs text-slate-400 space-y-1">
           <p className="font-medium text-slate-300">Comptes de démonstration :</p>
           <p><span className="text-slate-200">Admin :</span> admin@campus.fr / Admin1234!</p>
-          <p><span className="text-slate-200">Enseignant :</span> prof.dubois@campus.fr / Prof1234!</p>
-          <p><span className="text-slate-200">Étudiant :</span> etudiant1@campus.fr / Etudiant123!</p>
-          <p><span className="text-slate-200">Maintenance :</span> tech1@campus.fr / Tech1234!</p>
+          <p><span className="text-slate-200">Enseignant :</span> prof@campus.fr / Prof1234!</p>
+          <p><span className="text-slate-200">Étudiant :</span> etudiant@campus.fr / Etudiant1!</p>
+          <p><span className="text-slate-200">Maintenance :</span> maintenance@campus.fr / Maint1234!</p>
         </div>
+
+        <p className="text-center text-sm text-slate-400">
+          Pas encore de compte ?{" "}
+          <Link href="/register" className="text-slate-200 hover:underline">
+            S&apos;inscrire
+          </Link>
+        </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

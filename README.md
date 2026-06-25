@@ -59,10 +59,10 @@ npm run db:reset
 
 | Rôle | Email | Mot de passe |
 |------|-------|--------------|
-| Administrateur | `admin@campus.fr` | `admin123` |
-| Enseignant | `prof.martin@campus.fr` | `prof123` |
-| Étudiant | `alice.dupont@etud.campus.fr` | `etud123` |
-| Agent maintenance | `maintenance@campus.fr` | `maint123` |
+| Administrateur | `admin@campus.fr` | `Admin1234!` |
+| Enseignant | `prof@campus.fr` | `Prof1234!` |
+| Étudiant | `etudiant@campus.fr` | `Etudiant1!` |
+| Agent maintenance | `maintenance@campus.fr` | `Maint1234!` |
 
 ## Structure du projet
 
@@ -194,10 +194,75 @@ Le campus ne dispose pas de vrais capteurs — les données sont simulées :
 | Énergie | 🚧 Placeholder | `/dashboard/energy` |
 | Affluence cafétéria | 🚧 Placeholder | `/dashboard/affluence` |
 
+## Migration vers Supabase (PostgreSQL)
+
+Le projet est SQLite en local. Pour passer à Supabase :
+
+### 1. Vérifier la compatibilité du schéma
+
+Le schéma Prisma est entièrement compatible PostgreSQL. Points d'attention :
+- Remplacer le driver adapter : supprimer `@prisma/adapter-libsql` et `@libsql/client`, installer `@prisma/adapter-neon` ou utiliser le connecteur natif Prisma.
+- SQLite n'a pas d'`ENUM` natif (Prisma les émule) — PostgreSQL les supportera nativement, pas de changement à faire.
+- Les `Float` SQLite → `DoublePrecision` PostgreSQL (transparent avec Prisma).
+
+### 2. Modifier le provider
+
+Dans `prisma/schema.prisma` :
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  # directUrl = env("DIRECT_URL")  # décommentez si vous utilisez PgBouncer
+}
+```
+
+Dans `prisma.config.ts`, le datasource URL sera lu depuis l'env.
+
+### 3. Configurer les variables d'environnement
+
+```env
+DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres?pgbouncer=true"
+DIRECT_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres"
+```
+
+### 4. Migrer et seeder
+
+```bash
+npx prisma migrate deploy  # en production (applique les migrations existantes)
+# ou
+npx prisma migrate dev     # en dev (crée une nouvelle migration)
+npx prisma db seed
+```
+
+### 5. Adapter le client Prisma
+
+Dans `src/lib/prisma.ts` et `prisma/seed.ts`, remplacer l'adapter libsql par l'adapter Neon ou supprimer complètement l'adapter (les providers PostgreSQL modernes n'en ont pas besoin avec Prisma v7+).
+
+## Matrice de permissions
+
+| Module | ADMIN | TEACHER | STUDENT | MAINTENANCE |
+|--------|-------|---------|---------|-------------|
+| Tableau de bord | Tout | Ses cours | Son emploi du temps | Incidents en attente |
+| Parking | Gérer | — | Voir + Réserver | — |
+| Éclairage ext. | Contrôle | — | — | Voir + Panne |
+| Bâtiments/Équip. | Gérer | Sa salle | — | Voir + Panne |
+| HVAC | Contrôle | Sa salle | — | Voir + Panne |
+| Espaces | Gérer | Voir | — | — |
+| Résidences | Gérer | — | Sa chambre | — |
+| Étudiants | Gérer | Ses étudiants | Son profil | — |
+| Cours | Gérer | Ses cours + appel | Ses cours | — |
+| Réservations | Gérer | Créer | — | — |
+| Énergie | Voir | — | — | — |
+| Affluence | Voir | Voir | Voir | — |
+| Sécurité/Logs | Voir | — | — | — |
+| Incidents | Gérer | Signaler | Signaler | Gérer |
+| Admin/Utilisateurs | Gérer | — | — | — |
+| Préférences | Oui | Oui | Oui | Oui |
+
 ## Prochaines étapes
 
-- Implémenter les modules placeholder (bâtiments, espaces, étudiants, énergie…)
-- Ajouter les actions (contrôle HVAC, réservation de parking, signalement d'incident)
-- Intégrer les graphiques recharts (consommation énergie, affluence, température historique)
-- Ajouter la simulation de websockets pour les données temps réel
-- Écrire les tests d'intégration (Playwright pour le flux d'authentification et RBAC)
+- Contrôle IoT en temps réel (lumières, HVAC) — API PATCH + revalidation
+- Appel des étudiants dans la page Cours (enseignant)
+- Graphiques recharts (consommation énergie, affluence, température historique)
+- Simulation WebSocket pour les données capteurs en temps réel
+- Tests d'intégration (Playwright) pour les flux auth et RBAC

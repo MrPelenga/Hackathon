@@ -645,6 +645,66 @@ async function main() {
   console.log(`   • ${await prisma.course.count()} cours / ${await prisma.courseSession.count()} sessions`);
   console.log(`   • ${await prisma.sensorReading.count()} relevés capteurs`);
   console.log(`   • ${await prisma.incident.count()} incidents`);
+
+  // ── Demo shortcut accounts ─────────────────────────────────────────────────
+  // Guaranteed simple-email demo accounts for easy testing
+  const demoTeacher = await prisma.user.create({
+    data: {
+      email: "prof@campus.fr",
+      passwordHash: hash("Prof1234!"),
+      firstName: "Demo",
+      lastName: "Enseignant",
+      role: "TEACHER",
+    },
+  });
+  // Assign the demo teacher to the first course so they have data
+  const firstCourse = await prisma.course.findFirst();
+  if (firstCourse) {
+    await prisma.course.create({
+      data: {
+        code: "DEMO101",
+        name: "Cours de démonstration",
+        teacherId: demoTeacher.id,
+        credits: 3,
+        description: "Cours de démonstration pour le compte prof@campus.fr",
+      },
+    });
+  }
+
+  const demoStudent = await prisma.user.create({
+    data: {
+      email: "etudiant@campus.fr",
+      passwordHash: hash("Etudiant1!"),
+      firstName: "Demo",
+      lastName: "Etudiant",
+      role: "STUDENT",
+    },
+  });
+  const demoStudentCount = await prisma.student.count();
+  await prisma.student.create({
+    data: {
+      userId: demoStudent.id,
+      studentNumber: `ETU${String(demoStudentCount + 1).padStart(5, "0")}`,
+      year: 2,
+      program: "Informatique",
+    },
+  });
+
+  await prisma.user.create({
+    data: {
+      email: "maintenance@campus.fr",
+      passwordHash: hash("Maint1234!"),
+      firstName: "Demo",
+      lastName: "Maintenance",
+      role: "MAINTENANCE",
+    },
+  });
+
+  console.log("📋 Comptes de démonstration :");
+  console.log("   admin@campus.fr       / Admin1234!  (Admin)");
+  console.log("   prof@campus.fr        / Prof1234!   (Enseignant)");
+  console.log("   etudiant@campus.fr    / Etudiant1!  (Étudiant)");
+  console.log("   maintenance@campus.fr / Maint1234!  (Maintenance)");
 }
 
 main()

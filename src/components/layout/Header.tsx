@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Menu, LogOut, User, ChevronDown } from "lucide-react";
+import { Bell, Menu, LogOut, User, ChevronDown, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import type { UserRole } from "@/types";
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -36,6 +37,7 @@ interface HeaderProps {
 }
 
 export function Header({ userName, role, unreadNotifications = 0, onMenuToggle }: HeaderProps) {
+  const router = useRouter();
   const initials = userName
     .split(" ")
     .map((n) => n[0])
@@ -97,9 +99,13 @@ export function Header({ userName, role, unreadNotifications = 0, onMenuToggle }
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push("/dashboard/preferences")}>
             <User className="mr-2 h-4 w-4" />
             Mon profil
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push("/dashboard/preferences")}>
+            <Settings className="mr-2 h-4 w-4" />
+            Préférences
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
