@@ -280,3 +280,15 @@ model AccessEvent {
 
   @@map("access_events")
 }
+
+// Checkpoint of the access-log chain head, anchored automatically on XRPL.
+model AccessAnchor {
+  id          String   @id @default(cuid())
+  chainHead   String   @map("chain_head")
+  blockCount  Int      @map("block_count")
+  xrplTxHash  String?  @map("xrpl_tx_hash")
+  xrplAddress String?  @map("xrpl_address")
+  anchoredAt  DateTime @default(now()) @map("anchored_at")
+
+  @@map("access_anchors")
+}

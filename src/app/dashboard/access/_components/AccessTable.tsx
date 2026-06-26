@@ -31,6 +31,7 @@ const ROLE_LABELS: Record<string, string> = {
   ETUDIANT: "Étudiant",
   PRESTATAIRE: "Presta.",
   VISITEUR: "Visiteur",
+  INCONNU: "Inconnu",
 };
 
 type Filter = "ALL" | "GRANTED" | "DENIED";

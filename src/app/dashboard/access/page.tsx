@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ShieldCheck, ShieldAlert, Wifi, WifiOff, Users, KeyRound, Hash } from "lucide-react";
 import { AccessTable, type AccessEventRow } from "./_components/AccessTable";
-import { XrplRecorder } from "./_components/XrplRecorder";
+import { IntegrityVerifier } from "./_components/IntegrityVerifier";
 
 const ROLE_LABELS: Record<string, string> = {
   ADMINISTRATEUR: "Administrateur",
@@ -18,6 +18,7 @@ const ROLE_LABELS: Record<string, string> = {
   ETUDIANT: "Étudiant",
   PRESTATAIRE: "Prestataire",
   VISITEUR: "Visiteur",
+  INCONNU: "Inconnu",
 };
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -75,7 +76,8 @@ export default async function AccessPage() {
     .sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
 
   const onlineReaders = readers.filter(r => r.isOnline).length;
-  const lastBlock     = rawEvents[rawEvents.length - 1];
+  // rawEvents is ordered by timestamp desc → index 0 is the newest = real chain head
+  const lastBlock     = rawEvents[0];
 
   return (
     <div className="space-y-6">
@@ -228,8 +230,8 @@ export default async function AccessPage() {
             </Card>
           )}
 
-          {/* XRPL Recorder */}
-          <XrplRecorder totalEvents={events.length} granted={granted} denied={denied} />
+          {/* Blockchain demo: simulate a badge scan + verify integrity */}
+          <IntegrityVerifier />
         </div>
 
         {/* Right: event log */}
